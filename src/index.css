@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+:root {
+  --udf-navy: #003366;
+  --udf-navy-dark: #002244;
+  --udf-cyan: #00AEEF;
+  --udf-blue: #007BFF;
+  --udf-light: #E6F6FF;
+  --sigco-white: #FFFFFF;
+  --sigco-gray-light: #F1F5F9;
+  --sigco-gray-medium: #64748B;
+  --sigco-gray-dark: #1E293B;
+}
+
+@layer base {
+  body {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1E293B;
+    background-color: #F1F5F9;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #003366;
+  }
+
+  .font-mono,
+  .tabular-nums {
+    font-family: 'Poppins', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom subtle scrollbars in institutional UDF slate/blue */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 51, 102, 0.22);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 174, 239, 0.55);
+}

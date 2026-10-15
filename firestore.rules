@@ -1,0 +1,849 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // PILLAR 1 & GLOBAL SAFETY NET: Default-Deny Catch-All
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // PHASE 3: HARDENED GLOBAL PRIMITIVES
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email is string && (
+        request.auth.token.email == 'administrador@cs.udf.edu.br' ||
+        (request.auth.token.email == 'davidb.dev21@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isInstitutionalUser() {
+      return isSignedIn() && request.auth.token.email is string && (
+        request.auth.token.email.matches('^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$') ||
+        isBootstrappedAdmin()
+      );
+    }
+
+    function userDocExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function currentUserActive() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function currentUserEmail() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email;
+    }
+
+    function isAdmin() {
+      return isInstitutionalUser() && (
+        isBootstrappedAdmin() ||
+        (userDocExists() && currentUserActive() && currentUserRole() == 'ADMIN')
+      );
+    }
+
+    function isStaffOrClinical() {
+      return isInstitutionalUser() && (
+        isBootstrappedAdmin() ||
+        (userDocExists() && currentUserActive() && currentUserRole() in ['ADMIN', 'RECEPCAO', 'TRIAGEM', 'PROFESSOR', 'ALUNO'])
+      );
+    }
+
+    function isClinicalAuthorized() {
+      return isInstitutionalUser() && (
+        isBootstrappedAdmin() ||
+        (userDocExists() && currentUserActive() && currentUserRole() in ['ADMIN', 'TRIAGEM', 'PROFESSOR', 'ALUNO'])
+      );
+    }
+
+    function isValidPriority(p) {
+      return p is string && p.size() >= 4 && p.size() <= 10 && p in ['BAIXA', 'MEDIA', 'ALTA', 'URGENTE'];
+    }
+
+    function isValidDomain(d) {
+      return d is string && d.size() == 13 && d == 'cs.udf.edu.br';
+    }
+
+    // =========================================================================
+    // PILLAR 2: VALIDATION BLUEPRINTS (Anti-Update-Gap)
+    // =========================================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll([
+        'uid', 'name', 'email', 'role', 'registrationCode', 'specialty', 'active', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'uid', 'name', 'email', 'role', 'registrationCode', 'specialty', 'active',
+        'createdAt', 'lastAccess', 'mustChangePassword',
+        'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.uid)
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+      && data.email is string && data.email.size() >= 15 && data.email.size() <= 120
+      && data.email.matches('^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$')
+      && data.role is string && data.role.size() >= 5 && data.role.size() <= 15
+      && data.role in ['ADMIN', 'RECEPCAO', 'TRIAGEM', 'PROFESSOR', 'ALUNO']
+      && data.registrationCode is string && data.registrationCode.size() >= 1 && data.registrationCode.size() <= 40
+      && data.specialty is string && data.specialty.size() >= 1 && data.specialty.size() <= 80
+      && data.active is bool
+      && (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 40))
+      && (!('lastAccess' in data) || (data.lastAccess is string && data.lastAccess.size() <= 40))
+      && (!('mustChangePassword' in data) || (data.mustChangePassword is bool))
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidPatient(data) {
+      return data.keys().hasAll([
+        'name', 'cpf', 'birthDate', 'gender', 'phone', 'whatsapp', 'email', 'address',
+        'registrationDate', 'adminNotes', 'status', 'specialtyNeeded', 'priority',
+        'unjustifiedAbsences', 'triaged', 'assignedStudentEmail', 'assignedProfessorEmail',
+        'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'name', 'cpf', 'birthDate', 'gender', 'phone', 'whatsapp', 'email', 'address',
+        'registrationDate', 'adminNotes', 'status', 'specialtyNeeded', 'priority',
+        'unjustifiedAbsences', 'triaged', 'assignedStudentEmail', 'assignedProfessorEmail',
+        'institutionDomain', 'createdByUid'
+      ])
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+      && data.cpf is string && data.cpf.size() >= 3 && data.cpf.size() <= 18
+      && data.birthDate is string && data.birthDate.size() >= 8 && data.birthDate.size() <= 20
+      && data.gender is string && data.gender.size() >= 1 && data.gender.size() <= 30
+      && data.phone is string && data.phone.size() >= 3 && data.phone.size() <= 30
+      && data.whatsapp is string && data.whatsapp.size() >= 3 && data.whatsapp.size() <= 30
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 120
+      && data.address is string && data.address.size() >= 2 && data.address.size() <= 250
+      && data.registrationDate is string && data.registrationDate.size() >= 8 && data.registrationDate.size() <= 30
+      && data.adminNotes is string && data.adminNotes.size() <= 1000
+      && data.status is string && data.status.size() >= 4 && data.status.size() <= 25
+      && data.status in [
+        'LISTA_ESPERA', 'AGUARDANDO_TRIAGEM', 'TRIADO', 'AGUARDANDO_VAGA',
+        'EM_TRATAMENTO', 'ENCAMINHADO', 'CONCLUIDO', 'ALTA', 'CANCELADO', 'EXCLUIDO'
+      ]
+      && data.specialtyNeeded is string && data.specialtyNeeded.size() >= 1 && data.specialtyNeeded.size() <= 80
+      && isValidPriority(data.priority)
+      && data.unjustifiedAbsences is number && data.unjustifiedAbsences >= 0 && data.unjustifiedAbsences <= 50
+      && data.triaged is bool
+      && data.assignedStudentEmail is string && data.assignedStudentEmail.size() <= 120
+      && data.assignedProfessorEmail is string && data.assignedProfessorEmail.size() <= 120
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidWaitingListEntry(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'position', 'entryDate', 'specialty',
+        'priority', 'status', 'notes', 'responsibleName', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'position', 'entryDate', 'specialty',
+        'priority', 'status', 'notes', 'responsibleName', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.position is number && data.position >= 1 && data.position <= 100000
+      && data.entryDate is string && data.entryDate.size() >= 8 && data.entryDate.size() <= 30
+      && data.specialty is string && data.specialty.size() >= 1 && data.specialty.size() <= 80
+      && isValidPriority(data.priority)
+      && data.status is string && data.status.size() >= 6 && data.status.size() <= 25
+      && data.status in ['AGUARDANDO_TRIAGEM', 'AGUARDANDO_VAGA', 'EM_ATENDIMENTO', 'ATENDIDO', 'REMOVIDO']
+      && data.notes is string && data.notes.size() <= 1000
+      && data.responsibleName is string && data.responsibleName.size() >= 1 && data.responsibleName.size() <= 120
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidScreening(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'dentistName', 'dentistEmail', 'screeningDate',
+        'initialAnamnesis', 'dentalNeeds', 'specialty', 'priority', 'notes', 'status',
+        'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'dentistName', 'dentistEmail', 'screeningDate',
+        'initialAnamnesis', 'dentalNeeds', 'specialty', 'priority', 'notes', 'status',
+        'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.dentistName is string && data.dentistName.size() >= 2 && data.dentistName.size() <= 120
+      && data.dentistEmail is string && data.dentistEmail.size() >= 15 && data.dentistEmail.size() <= 120
+      && data.screeningDate is string && data.screeningDate.size() >= 8 && data.screeningDate.size() <= 30
+      && data.initialAnamnesis is string && data.initialAnamnesis.size() >= 2 && data.initialAnamnesis.size() <= 2000
+      && data.dentalNeeds is string && data.dentalNeeds.size() >= 2 && data.dentalNeeds.size() <= 2000
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && isValidPriority(data.priority)
+      && data.notes is string && data.notes.size() <= 1000
+      && data.status is string && data.status.size() >= 6 && data.status.size() <= 20
+      && data.status in ['REALIZADA', 'ENCAMINHADO', 'REAVALIACAO']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'studentName', 'studentEmail', 'professorName',
+        'professorEmail', 'clinicName', 'specialty', 'date', 'startTime', 'endTime',
+        'availabilityId', 'status', 'notes', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'studentName', 'studentEmail', 'professorName',
+        'professorEmail', 'clinicName', 'specialty', 'date', 'startTime', 'endTime',
+        'availabilityId', 'status', 'notes', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.studentName is string && data.studentName.size() >= 2 && data.studentName.size() <= 120
+      && data.studentEmail is string && data.studentEmail.size() >= 15 && data.studentEmail.size() <= 120
+      && data.professorName is string && data.professorName.size() >= 2 && data.professorName.size() <= 120
+      && data.professorEmail is string && data.professorEmail.size() >= 15 && data.professorEmail.size() <= 120
+      && data.clinicName is string && data.clinicName.size() >= 2 && data.clinicName.size() <= 100
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 20
+      && data.startTime is string && data.startTime.size() >= 4 && data.startTime.size() <= 10
+      && data.endTime is string && data.endTime.size() >= 4 && data.endTime.size() <= 10
+      && isValidId(data.availabilityId)
+      && data.status is string && data.status.size() >= 6 && data.status.size() <= 20
+      && data.status in ['AGENDADA', 'CONFIRMADA', 'EM_ATENDIMENTO', 'ATENDIDA', 'FALTOU', 'CANCELADA', 'REMARCADA']
+      && data.notes is string && data.notes.size() <= 1000
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidAvailability(data) {
+      return data.keys().hasAll([
+        'professorName', 'professorEmail', 'clinicName', 'specialty', 'dayOfWeek',
+        'startTime', 'endTime', 'totalSlots', 'usedSlots', 'authorizedStudentsInfo',
+        'status', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'professorName', 'professorEmail', 'clinicName', 'specialty', 'dayOfWeek',
+        'startTime', 'endTime', 'totalSlots', 'usedSlots', 'authorizedStudentsInfo',
+        'status', 'institutionDomain', 'createdByUid'
+      ])
+      && data.professorName is string && data.professorName.size() >= 2 && data.professorName.size() <= 120
+      && data.professorEmail is string && data.professorEmail.size() >= 15 && data.professorEmail.size() <= 120
+      && data.clinicName is string && data.clinicName.size() >= 2 && data.clinicName.size() <= 100
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && data.dayOfWeek is string && data.dayOfWeek.size() >= 3 && data.dayOfWeek.size() <= 30
+      && data.startTime is string && data.startTime.size() >= 4 && data.startTime.size() <= 10
+      && data.endTime is string && data.endTime.size() >= 4 && data.endTime.size() <= 10
+      && data.totalSlots is number && data.totalSlots >= 1 && data.totalSlots <= 100
+      && data.usedSlots is number && data.usedSlots >= 0 && data.usedSlots <= data.totalSlots
+      && data.authorizedStudentsInfo is string && data.authorizedStudentsInfo.size() >= 1 && data.authorizedStudentsInfo.size() <= 500
+      && data.status is string && data.status.size() >= 5 && data.status.size() <= 15
+      && data.status in ['ATIVA', 'ENCERRADA']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidMedicalRecord(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'responsibleStudentEmail', 'supervisorProfessorEmail',
+        'diagnosis', 'evaluationNotes', 'clinicalNeeds', 'treatmentPlanProcedure',
+        'treatmentPlanSpecialty', 'treatmentPlanPriority', 'treatmentPlanForecast',
+        'validatedByProfessor', 'status', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'responsibleStudentEmail', 'supervisorProfessorEmail',
+        'diagnosis', 'evaluationNotes', 'clinicalNeeds', 'treatmentPlanProcedure',
+        'treatmentPlanSpecialty', 'treatmentPlanPriority', 'treatmentPlanForecast',
+        'validatedByProfessor', 'status', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.responsibleStudentEmail is string && data.responsibleStudentEmail.size() >= 15 && data.responsibleStudentEmail.size() <= 120
+      && data.supervisorProfessorEmail is string && data.supervisorProfessorEmail.size() >= 15 && data.supervisorProfessorEmail.size() <= 120
+      && data.diagnosis is string && data.diagnosis.size() >= 2 && data.diagnosis.size() <= 2000
+      && data.evaluationNotes is string && data.evaluationNotes.size() <= 2000
+      && data.clinicalNeeds is string && data.clinicalNeeds.size() >= 2 && data.clinicalNeeds.size() <= 2000
+      && data.treatmentPlanProcedure is string && data.treatmentPlanProcedure.size() >= 2 && data.treatmentPlanProcedure.size() <= 500
+      && data.treatmentPlanSpecialty is string && data.treatmentPlanSpecialty.size() >= 2 && data.treatmentPlanSpecialty.size() <= 80
+      && isValidPriority(data.treatmentPlanPriority)
+      && data.treatmentPlanForecast is string && data.treatmentPlanForecast.size() >= 2 && data.treatmentPlanForecast.size() <= 100
+      && data.validatedByProfessor is bool
+      && data.status is string && data.status.size() >= 5 && data.status.size() <= 15
+      && data.status in ['ATIVO', 'EM_REVISAO', 'CONCLUIDO', 'ARQUIVADO']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidAnamnesis(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'chiefComplaint', 'medicalHistory',
+        'relevantInfo', 'observations', 'recordedByEmail', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'chiefComplaint', 'medicalHistory',
+        'relevantInfo', 'observations', 'recordedByEmail', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.chiefComplaint is string && data.chiefComplaint.size() >= 2 && data.chiefComplaint.size() <= 1000
+      && data.medicalHistory is string && data.medicalHistory.size() >= 2 && data.medicalHistory.size() <= 2000
+      && data.relevantInfo is string && data.relevantInfo.size() <= 1500
+      && data.observations is string && data.observations.size() <= 1500
+      && data.recordedByEmail is string && data.recordedByEmail.size() >= 15 && data.recordedByEmail.size() <= 120
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidClinicalEvolution(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'date', 'studentName', 'studentEmail',
+        'professorName', 'professorEmail', 'procedureName', 'evolutionText',
+        'observations', 'status', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'date', 'studentName', 'studentEmail',
+        'professorName', 'professorEmail', 'procedureName', 'evolutionText',
+        'observations', 'status', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 30
+      && data.studentName is string && data.studentName.size() >= 2 && data.studentName.size() <= 120
+      && data.studentEmail is string && data.studentEmail.size() >= 15 && data.studentEmail.size() <= 120
+      && data.professorName is string && data.professorName.size() >= 2 && data.professorName.size() <= 120
+      && data.professorEmail is string && data.professorEmail.size() >= 15 && data.professorEmail.size() <= 120
+      && data.procedureName is string && data.procedureName.size() >= 2 && data.procedureName.size() <= 200
+      && data.evolutionText is string && data.evolutionText.size() >= 2 && data.evolutionText.size() <= 2000
+      && data.observations is string && data.observations.size() <= 1000
+      && data.status is string && data.status.size() >= 8 && data.status.size() <= 25
+      && data.status in ['PENDENTE_VALIDACAO', 'VALIDADO', 'REVISAO_SOLICITADA']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidProcedure(data) {
+      return data.keys().hasAll([
+        'code', 'name', 'specialty', 'description', 'estimatedDurationMinutes',
+        'status', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'code', 'name', 'specialty', 'description', 'estimatedDurationMinutes',
+        'status', 'institutionDomain', 'createdByUid'
+      ])
+      && data.code is string && data.code.size() >= 2 && data.code.size() <= 30
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 150
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && data.description is string && data.description.size() >= 2 && data.description.size() <= 1000
+      && data.estimatedDurationMinutes is number && data.estimatedDurationMinutes >= 5 && data.estimatedDurationMinutes <= 480
+      && data.status is string && data.status.size() >= 5 && data.status.size() <= 10
+      && data.status in ['ATIVO', 'INATIVO']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidOdontogram(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'toothNumber', 'condition', 'surface',
+        'notes', 'updatedByEmail', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'toothNumber', 'condition', 'surface',
+        'notes', 'updatedByEmail', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.toothNumber is number && data.toothNumber >= 11 && data.toothNumber <= 85
+      && data.condition is string && data.condition.size() >= 5 && data.condition.size() <= 30
+      && data.condition in ['HIGIDO', 'CARIE', 'RESTAURACAO', 'AUSENTE', 'EM_TRATAMENTO', 'NECESSIDADE_PROCEDIMENTO']
+      && data.surface is string && data.surface.size() >= 1 && data.surface.size() <= 50
+      && data.notes is string && data.notes.size() <= 500
+      && data.updatedByEmail is string && data.updatedByEmail.size() >= 15 && data.updatedByEmail.size() <= 120
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidReferral(data) {
+      return data.keys().hasAll([
+        'patientId', 'patientName', 'originSpecialty', 'destinationSpecialty',
+        'responsibleProfessional', 'responsibleEmail', 'reason', 'date',
+        'priority', 'notes', 'status', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'patientId', 'patientName', 'originSpecialty', 'destinationSpecialty',
+        'responsibleProfessional', 'responsibleEmail', 'reason', 'date',
+        'priority', 'notes', 'status', 'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.originSpecialty is string && data.originSpecialty.size() >= 2 && data.originSpecialty.size() <= 80
+      && data.destinationSpecialty is string && data.destinationSpecialty.size() >= 2 && data.destinationSpecialty.size() <= 80
+      && data.responsibleProfessional is string && data.responsibleProfessional.size() >= 2 && data.responsibleProfessional.size() <= 120
+      && data.responsibleEmail is string && data.responsibleEmail.size() >= 15 && data.responsibleEmail.size() <= 120
+      && data.reason is string && data.reason.size() >= 2 && data.reason.size() <= 1000
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 30
+      && isValidPriority(data.priority)
+      && data.notes is string && data.notes.size() <= 1000
+      && data.status is string && data.status.size() >= 6 && data.status.size() <= 20
+      && data.status in ['PENDENTE', 'ACEITO', 'EM_ATENDIMENTO', 'CONCLUIDO', 'CANCELADO']
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll([
+        'appointmentId', 'patientId', 'patientName', 'date', 'type',
+        'justification', 'triggeredProgramRemoval', 'recordedByEmail',
+        'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'appointmentId', 'patientId', 'patientName', 'date', 'type',
+        'justification', 'triggeredProgramRemoval', 'recordedByEmail',
+        'institutionDomain', 'createdByUid'
+      ])
+      && isValidId(data.appointmentId)
+      && isValidId(data.patientId)
+      && data.patientName is string && data.patientName.size() >= 2 && data.patientName.size() <= 120
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 30
+      && data.type is string && data.type.size() >= 8 && data.type.size() <= 25
+      && data.type in ['PRESENCA', 'FALTA_JUSTIFICADA', 'FALTA_NAO_JUSTIFICADA', 'CANCELAMENTO', 'REMARCACAO']
+      && data.justification is string && data.justification.size() <= 500
+      && data.triggeredProgramRemoval is bool
+      && data.recordedByEmail is string && data.recordedByEmail.size() >= 15 && data.recordedByEmail.size() <= 120
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidSpecialty(data) {
+      return data.keys().hasAll([
+        'name', 'code', 'description', 'active', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'name', 'code', 'description', 'active', 'institutionDomain', 'createdByUid'
+      ])
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+      && data.code is string && data.code.size() >= 2 && data.code.size() <= 20
+      && data.description is string && data.description.size() >= 2 && data.description.size() <= 500
+      && data.active is bool
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidClinic(data) {
+      return data.keys().hasAll([
+        'name', 'specialty', 'location', 'capacity', 'active', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'name', 'specialty', 'location', 'capacity', 'active', 'institutionDomain', 'createdByUid'
+      ])
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && data.location is string && data.location.size() >= 2 && data.location.size() <= 100
+      && data.capacity is number && data.capacity >= 1 && data.capacity <= 200
+      && data.active is bool
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidStudentProfile(data) {
+      return data.keys().hasAll([
+        'name', 'email', 'enrollmentNumber', 'semester', 'specialtyClinic',
+        'supervisorEmail', 'active', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'name', 'email', 'enrollmentNumber', 'semester', 'specialtyClinic',
+        'supervisorEmail', 'active', 'institutionDomain', 'createdByUid'
+      ])
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+      && data.email is string && data.email.size() >= 15 && data.email.size() <= 120
+      && data.email.matches('^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$')
+      && data.enrollmentNumber is string && data.enrollmentNumber.size() >= 2 && data.enrollmentNumber.size() <= 30
+      && data.semester is string && data.semester.size() >= 1 && data.semester.size() <= 20
+      && data.specialtyClinic is string && data.specialtyClinic.size() >= 2 && data.specialtyClinic.size() <= 80
+      && data.supervisorEmail is string && data.supervisorEmail.size() >= 15 && data.supervisorEmail.size() <= 120
+      && data.active is bool
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidProfessorProfile(data) {
+      return data.keys().hasAll([
+        'name', 'email', 'cro', 'specialty', 'clinicName', 'active', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'name', 'email', 'cro', 'specialty', 'clinicName', 'active', 'institutionDomain', 'createdByUid'
+      ])
+      && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+      && data.email is string && data.email.size() >= 15 && data.email.size() <= 120
+      && data.email.matches('^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$')
+      && data.cro is string && data.cro.size() >= 2 && data.cro.size() <= 30
+      && data.specialty is string && data.specialty.size() >= 2 && data.specialty.size() <= 80
+      && data.clinicName is string && data.clinicName.size() >= 2 && data.clinicName.size() <= 100
+      && data.active is bool
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll([
+        'recipientName', 'recipientContact', 'type', 'channel', 'message',
+        'status', 'date', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'recipientName', 'recipientContact', 'type', 'channel', 'message',
+        'status', 'date', 'institutionDomain', 'createdByUid'
+      ])
+      && data.recipientName is string && data.recipientName.size() >= 2 && data.recipientName.size() <= 120
+      && data.recipientContact is string && data.recipientContact.size() >= 3 && data.recipientContact.size() <= 120
+      && data.type is string && data.type.size() >= 6 && data.type.size() <= 25
+      && data.type in ['CONFIRMACAO', 'LEMBRETE', 'ALTERACAO_HORARIO', 'CANCELAMENTO', 'ENCAMINHAMENTO', 'AVISO_TRIAGEM', 'ALERTA_FALTAS']
+      && data.channel is string && data.channel.size() >= 5 && data.channel.size() <= 20
+      && data.channel in ['SISTEMA', 'WHATSAPP_FILA', 'EMAIL']
+      && data.message is string && data.message.size() >= 2 && data.message.size() <= 1000
+      && data.status is string && data.status.size() >= 4 && data.status.size() <= 15
+      && data.status in ['PENDENTE', 'ENVIADA', 'LIDA']
+      && data.date is string && data.date.size() >= 8 && data.date.size() <= 30
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll([
+        'userName', 'userEmail', 'userRole', 'action', 'targetRecord',
+        'operationSummary', 'timestampIso', 'institutionDomain', 'createdByUid'
+      ]) && data.keys().hasOnly([
+        'userName', 'userEmail', 'userRole', 'action', 'targetRecord',
+        'operationSummary', 'timestampIso', 'institutionDomain', 'createdByUid'
+      ])
+      && data.userName is string && data.userName.size() >= 2 && data.userName.size() <= 120
+      && data.userEmail is string && data.userEmail.size() >= 5 && data.userEmail.size() <= 120
+      && data.userRole is string && data.userRole.size() >= 5 && data.userRole.size() <= 15
+      && data.userRole in ['ADMIN', 'RECEPCAO', 'TRIAGEM', 'PROFESSOR', 'ALUNO']
+      && data.action is string && data.action.size() >= 2 && data.action.size() <= 120
+      && data.targetRecord is string && data.targetRecord.size() >= 1 && data.targetRecord.size() <= 200
+      && data.operationSummary is string && data.operationSummary.size() >= 2 && data.operationSummary.size() <= 500
+      && data.timestampIso is string && data.timestampIso.size() >= 8 && data.timestampIso.size() <= 40
+      && isValidDomain(data.institutionDomain)
+      && isValidId(data.createdByUid);
+    }
+
+    // =========================================================================
+    // CONNECTION TEST PATH (/test/{testId})
+    // =========================================================================
+    match /test/{testId} {
+      allow get: if isValidId(testId);
+      allow list, create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // 1. USERS (/users/{userId})
+    // =========================================================================
+    match /users/{userId} {
+      allow get: if isInstitutionalUser() && isValidId(userId) && (
+        request.auth.uid == userId ||
+        isAdmin() ||
+        (resource != null && existing().email == request.auth.token.email)
+      );
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isInstitutionalUser() && isValidId(userId) && isValidUser(incoming()) && incoming().createdByUid == request.auth.uid && (
+        request.auth.uid == userId || isAdmin()
+      );
+      allow update: if isInstitutionalUser() && isValidId(userId) && isValidUser(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'email', 'role', 'registrationCode', 'specialty', 'active', 'createdAt', 'lastAccess', 'mustChangePassword'
+        ]))
+      );
+      allow delete: if isAdmin() && isValidId(userId) && request.auth.uid != userId;
+    }
+
+    // =========================================================================
+    // 2. PATIENTS (/patients/{patientId})
+    // =========================================================================
+    match /patients/{patientId} {
+      allow get: if isStaffOrClinical() && isValidId(patientId) && (
+        isAdmin() ||
+        currentUserRole() in ['RECEPCAO', 'TRIAGEM', 'PROFESSOR'] ||
+        existing().assignedStudentEmail == currentUserEmail() ||
+        existing().createdByUid == request.auth.uid
+      );
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(patientId) && isValidPatient(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(patientId) && isValidPatient(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        (existing().status != 'EXCLUIDO' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'cpf', 'birthDate', 'gender', 'phone', 'whatsapp', 'email', 'address',
+          'adminNotes', 'status', 'specialtyNeeded', 'priority', 'unjustifiedAbsences',
+          'triaged', 'assignedStudentEmail', 'assignedProfessorEmail'
+        ]))
+      );
+      allow delete: if isAdmin() && isValidId(patientId);
+    }
+
+    // =========================================================================
+    // 3. WAITING LIST (/waiting_list/{entryId})
+    // =========================================================================
+    match /waiting_list/{entryId} {
+      allow get: if isStaffOrClinical() && isValidId(entryId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(entryId) && isValidWaitingListEntry(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(entryId) && isValidWaitingListEntry(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        (existing().status != 'REMOVIDO' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'position', 'specialty', 'priority', 'status', 'notes', 'responsibleName'
+        ]))
+      );
+      allow delete: if isStaffOrClinical() && isValidId(entryId);
+    }
+
+    // =========================================================================
+    // 4. SCREENINGS (/screenings/{screeningId})
+    // =========================================================================
+    match /screenings/{screeningId} {
+      allow get: if isClinicalAuthorized() && isValidId(screeningId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(screeningId) && isValidScreening(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(screeningId) && isValidScreening(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'initialAnamnesis', 'dentalNeeds', 'specialty', 'priority', 'notes', 'status'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(screeningId);
+    }
+
+    // =========================================================================
+    // 5. APPOINTMENTS (/appointments/{appointmentId})
+    // =========================================================================
+    match /appointments/{appointmentId} {
+      allow get: if isStaffOrClinical() && isValidId(appointmentId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(appointmentId) && isValidAppointment(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(appointmentId) && isValidAppointment(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'startTime', 'endTime', 'status', 'notes', 'studentName', 'studentEmail', 'professorName', 'professorEmail'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(appointmentId);
+    }
+
+    // =========================================================================
+    // 6. AVAILABILITY (/availability/{availabilityId})
+    // =========================================================================
+    match /availability/{availabilityId} {
+      allow get: if isStaffOrClinical() && isValidId(availabilityId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(availabilityId) && isValidAvailability(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(availabilityId) && isValidAvailability(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'dayOfWeek', 'startTime', 'endTime', 'totalSlots', 'usedSlots', 'authorizedStudentsInfo', 'status'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(availabilityId);
+    }
+
+    // =========================================================================
+    // 7. MEDICAL RECORDS (/medical_records/{recordId}) — RN03 & RN06 Enforced
+    // =========================================================================
+    match /medical_records/{recordId} {
+      allow get: if isClinicalAuthorized() && isValidId(recordId) && (
+        isAdmin() ||
+        currentUserRole() in ['TRIAGEM', 'PROFESSOR'] ||
+        existing().responsibleStudentEmail == currentUserEmail() ||
+        existing().createdByUid == request.auth.uid
+      );
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(recordId) && isValidMedicalRecord(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(recordId) && isValidMedicalRecord(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        (existing().status != 'ARQUIVADO' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'diagnosis', 'evaluationNotes', 'clinicalNeeds', 'treatmentPlanProcedure',
+          'treatmentPlanSpecialty', 'treatmentPlanPriority', 'treatmentPlanForecast',
+          'validatedByProfessor', 'status', 'responsibleStudentEmail', 'supervisorProfessorEmail'
+        ]))
+      );
+      allow delete: if isAdmin() && isValidId(recordId);
+    }
+
+    // =========================================================================
+    // 8. ANAMNESIS (/anamnesis/{anamnesisId}) — RN03 Enforced
+    // =========================================================================
+    match /anamnesis/{anamnesisId} {
+      allow get: if isClinicalAuthorized() && isValidId(anamnesisId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(anamnesisId) && isValidAnamnesis(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(anamnesisId) && isValidAnamnesis(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'chiefComplaint', 'medicalHistory', 'relevantInfo', 'observations', 'recordedByEmail'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(anamnesisId);
+    }
+
+    // =========================================================================
+    // 9. CLINICAL EVOLUTION (/clinical_evolution/{evolutionId}) — RN03 & RN06
+    // =========================================================================
+    match /clinical_evolution/{evolutionId} {
+      allow get: if isClinicalAuthorized() && isValidId(evolutionId) && (
+        isAdmin() ||
+        currentUserRole() in ['TRIAGEM', 'PROFESSOR'] ||
+        existing().studentEmail == currentUserEmail() ||
+        existing().createdByUid == request.auth.uid
+      );
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(evolutionId) && isValidClinicalEvolution(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(evolutionId) && isValidClinicalEvolution(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'procedureName', 'evolutionText', 'observations', 'status'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(evolutionId);
+    }
+
+    // =========================================================================
+    // 10. PROCEDURES (/procedures/{procedureId})
+    // =========================================================================
+    match /procedures/{procedureId} {
+      allow get: if isStaffOrClinical() && isValidId(procedureId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(procedureId) && isValidProcedure(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(procedureId) && isValidProcedure(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'specialty', 'description', 'estimatedDurationMinutes', 'status'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(procedureId);
+    }
+
+    // =========================================================================
+    // 11. ODONTOGRAMS (/odontograms/{odontogramId})
+    // =========================================================================
+    match /odontograms/{odontogramId} {
+      allow get: if isClinicalAuthorized() && isValidId(odontogramId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(odontogramId) && isValidOdontogram(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(odontogramId) && isValidOdontogram(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'condition', 'surface', 'notes', 'updatedByEmail'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(odontogramId);
+    }
+
+    // =========================================================================
+    // 12. REFERRALS (/referrals/{referralId})
+    // =========================================================================
+    match /referrals/{referralId} {
+      allow get: if isStaffOrClinical() && isValidId(referralId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isClinicalAuthorized() && isValidId(referralId) && isValidReferral(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isClinicalAuthorized() && isValidId(referralId) && isValidReferral(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        (existing().status != 'CONCLUIDO' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'destinationSpecialty', 'priority', 'notes', 'status'
+        ]))
+      );
+      allow delete: if isAdmin() && isValidId(referralId);
+    }
+
+    // =========================================================================
+    // 13. ATTENDANCE (/attendance/{attendanceId})
+    // =========================================================================
+    match /attendance/{attendanceId} {
+      allow get: if isStaffOrClinical() && isValidId(attendanceId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(attendanceId) && isValidAttendance(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['type', 'justification'])
+      );
+      allow delete: if isAdmin() && isValidId(attendanceId);
+    }
+
+    // =========================================================================
+    // 14. SPECIALTIES (/specialties/{specialtyId})
+    // =========================================================================
+    match /specialties/{specialtyId} {
+      allow get: if isStaffOrClinical() && isValidId(specialtyId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(specialtyId) && isValidSpecialty(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(specialtyId) && isValidSpecialty(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'active'])
+      );
+      allow delete: if isAdmin() && isValidId(specialtyId);
+    }
+
+    // =========================================================================
+    // 15. CLINICS (/clinics/{clinicId})
+    // =========================================================================
+    match /clinics/{clinicId} {
+      allow get: if isStaffOrClinical() && isValidId(clinicId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(clinicId) && isValidClinic(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(clinicId) && isValidClinic(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'specialty', 'location', 'capacity', 'active'])
+      );
+      allow delete: if isAdmin() && isValidId(clinicId);
+    }
+
+    // =========================================================================
+    // 16. STUDENTS (/students/{studentId})
+    // =========================================================================
+    match /students/{studentId} {
+      allow get: if isStaffOrClinical() && isValidId(studentId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(studentId) && isValidStudentProfile(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(studentId) && isValidStudentProfile(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'semester', 'specialtyClinic', 'supervisorEmail', 'active'])
+      );
+      allow delete: if isAdmin() && isValidId(studentId);
+    }
+
+    // =========================================================================
+    // 17. PROFESSORS (/professors/{professorId})
+    // =========================================================================
+    match /professors/{professorId} {
+      allow get: if isStaffOrClinical() && isValidId(professorId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(professorId) && isValidProfessorProfile(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(professorId) && isValidProfessorProfile(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'specialty', 'clinicName', 'active'])
+      );
+      allow delete: if isAdmin() && isValidId(professorId);
+    }
+
+    // =========================================================================
+    // 18. NOTIFICATIONS (/notifications/{notificationId})
+    // =========================================================================
+    match /notifications/{notificationId} {
+      allow get: if isStaffOrClinical() && isValidId(notificationId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(notificationId) && isValidNotification(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update: if isStaffOrClinical() && isValidId(notificationId) && isValidNotification(incoming()) && incoming().createdByUid == existing().createdByUid && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+      );
+      allow delete: if isAdmin() && isValidId(notificationId);
+    }
+
+    // =========================================================================
+    // 19. AUDIT LOGS (/audit_logs/{logId}) — RN08 Immutable Audit Log
+    // =========================================================================
+    match /audit_logs/{logId} {
+      allow get: if isStaffOrClinical() && isValidId(logId);
+      allow list: if isInstitutionalUser() && existing().institutionDomain == 'cs.udf.edu.br';
+      allow create: if isStaffOrClinical() && isValidId(logId) && isValidAuditLog(incoming()) && incoming().createdByUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

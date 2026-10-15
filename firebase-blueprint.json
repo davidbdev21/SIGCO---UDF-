@@ -1,0 +1,660 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Institutional user of SIGCO (@cs.udf.edu.br) with RBAC profile, status, creation date, and last access.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "minLength": 15, "maxLength": 120, "pattern": "^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$" },
+        "role": { "type": "string", "enum": ["ADMIN", "RECEPCAO", "TRIAGEM", "PROFESSOR", "ALUNO"] },
+        "registrationCode": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "specialty": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "lastAccess": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "mustChangePassword": { "type": "boolean" },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["uid", "name", "email", "role", "registrationCode", "specialty", "active", "institutionDomain", "createdByUid"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Patient administrative and lifecycle status record.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "cpf": { "type": "string", "minLength": 11, "maxLength": 18 },
+        "birthDate": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "gender": { "type": "string", "minLength": 1, "maxLength": 30 },
+        "phone": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "whatsapp": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "email": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "address": { "type": "string", "minLength": 3, "maxLength": 250 },
+        "registrationDate": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "adminNotes": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "status": {
+          "type": "string",
+          "enum": [
+            "LISTA_ESPERA",
+            "AGUARDANDO_TRIAGEM",
+            "TRIADO",
+            "AGUARDANDO_VAGA",
+            "EM_TRATAMENTO",
+            "ENCAMINHADO",
+            "CONCLUIDO",
+            "ALTA",
+            "CANCELADO",
+            "EXCLUIDO"
+          ]
+        },
+        "specialtyNeeded": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "priority": { "type": "string", "enum": ["BAIXA", "MEDIA", "ALTA", "URGENTE"] },
+        "unjustifiedAbsences": { "type": "number" },
+        "triaged": { "type": "boolean" },
+        "assignedStudentEmail": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "assignedProfessorEmail": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "name",
+        "cpf",
+        "birthDate",
+        "gender",
+        "phone",
+        "whatsapp",
+        "email",
+        "address",
+        "registrationDate",
+        "adminNotes",
+        "status",
+        "specialtyNeeded",
+        "priority",
+        "unjustifiedAbsences",
+        "triaged",
+        "assignedStudentEmail",
+        "assignedProfessorEmail",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "WaitingListEntry": {
+      "title": "WaitingListEntry",
+      "description": "Centralized waiting list entry for patients awaiting screening or specialty slot.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "position": { "type": "number" },
+        "entryDate": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "specialty": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "priority": { "type": "string", "enum": ["BAIXA", "MEDIA", "ALTA", "URGENTE"] },
+        "status": { "type": "string", "enum": ["AGUARDANDO_TRIAGEM", "AGUARDANDO_VAGA", "EM_ATENDIMENTO", "ATENDIDO", "REMOVIDO"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "responsibleName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "position",
+        "entryDate",
+        "specialty",
+        "priority",
+        "status",
+        "notes",
+        "responsibleName",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Screening": {
+      "title": "Screening",
+      "description": "Initial dental triage and specialty classification record.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "dentistName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "dentistEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "screeningDate": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "initialAnamnesis": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "dentalNeeds": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "priority": { "type": "string", "enum": ["BAIXA", "MEDIA", "ALTA", "URGENTE"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["REALIZADA", "ENCAMINHADO", "REAVALIACAO"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "dentistName",
+        "dentistEmail",
+        "screeningDate",
+        "initialAnamnesis",
+        "dentalNeeds",
+        "specialty",
+        "priority",
+        "notes",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Clinical dental appointment linking patient, student, professor, clinic, and time slot.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "studentName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "studentEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "professorName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "professorEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "clinicName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "startTime": { "type": "string", "minLength": 4, "maxLength": 10 },
+        "endTime": { "type": "string", "minLength": 4, "maxLength": 10 },
+        "availabilityId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": {
+          "type": "string",
+          "enum": ["AGENDADA", "CONFIRMADA", "EM_ATENDIMENTO", "ATENDIDA", "FALTOU", "CANCELADA", "REMARCADA"]
+        },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "studentName",
+        "studentEmail",
+        "professorName",
+        "professorEmail",
+        "clinicName",
+        "specialty",
+        "date",
+        "startTime",
+        "endTime",
+        "availabilityId",
+        "status",
+        "notes",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Availability": {
+      "title": "Availability",
+      "description": "Professor clinical schedule availability and slot capacity.",
+      "type": "object",
+      "properties": {
+        "professorName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "professorEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "clinicName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "dayOfWeek": { "type": "string", "minLength": 3, "maxLength": 30 },
+        "startTime": { "type": "string", "minLength": 4, "maxLength": 10 },
+        "endTime": { "type": "string", "minLength": 4, "maxLength": 10 },
+        "totalSlots": { "type": "number" },
+        "usedSlots": { "type": "number" },
+        "authorizedStudentsInfo": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "status": { "type": "string", "enum": ["ATIVA", "ENCERRADA"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "professorName",
+        "professorEmail",
+        "clinicName",
+        "specialty",
+        "dayOfWeek",
+        "startTime",
+        "endTime",
+        "totalSlots",
+        "usedSlots",
+        "authorizedStudentsInfo",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "MedicalRecord": {
+      "title": "MedicalRecord",
+      "description": "Electronic health record summary, evaluation, and treatment plan for a patient.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "responsibleStudentEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "supervisorProfessorEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "diagnosis": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "evaluationNotes": { "type": "string", "minLength": 0, "maxLength": 2000 },
+        "clinicalNeeds": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "treatmentPlanProcedure": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "treatmentPlanSpecialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "treatmentPlanPriority": { "type": "string", "enum": ["BAIXA", "MEDIA", "ALTA", "URGENTE"] },
+        "treatmentPlanForecast": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "validatedByProfessor": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["ATIVO", "EM_REVISAO", "CONCLUIDO", "ARQUIVADO"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "responsibleStudentEmail",
+        "supervisorProfessorEmail",
+        "diagnosis",
+        "evaluationNotes",
+        "clinicalNeeds",
+        "treatmentPlanProcedure",
+        "treatmentPlanSpecialty",
+        "treatmentPlanPriority",
+        "treatmentPlanForecast",
+        "validatedByProfessor",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Anamnesis": {
+      "title": "Anamnesis",
+      "description": "Patient clinical anamnesis record.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "chiefComplaint": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "medicalHistory": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "relevantInfo": { "type": "string", "minLength": 0, "maxLength": 1500 },
+        "observations": { "type": "string", "minLength": 0, "maxLength": 1500 },
+        "recordedByEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "chiefComplaint",
+        "medicalHistory",
+        "relevantInfo",
+        "observations",
+        "recordedByEmail",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "ClinicalEvolution": {
+      "title": "ClinicalEvolution",
+      "description": "Chronological clinical evolution entry per dental session.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "date": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "studentName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "studentEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "professorName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "professorEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "procedureName": { "type": "string", "minLength": 2, "maxLength": 200 },
+        "evolutionText": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "observations": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["PENDENTE_VALIDACAO", "VALIDADO", "REVISAO_SOLICITADA"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "date",
+        "studentName",
+        "studentEmail",
+        "professorName",
+        "professorEmail",
+        "procedureName",
+        "evolutionText",
+        "observations",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Procedure": {
+      "title": "Procedure",
+      "description": "Catalog of dental procedures and estimated durations.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 2, "maxLength": 30 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 150 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "estimatedDurationMinutes": { "type": "number" },
+        "status": { "type": "string", "enum": ["ATIVO", "INATIVO"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "code",
+        "name",
+        "specialty",
+        "description",
+        "estimatedDurationMinutes",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Odontogram": {
+      "title": "Odontogram",
+      "description": "Visual odontogram tooth condition record linked to a patient.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "toothNumber": { "type": "number" },
+        "condition": {
+          "type": "string",
+          "enum": ["HIGIDO", "CARIE", "RESTAURACAO", "AUSENTE", "EM_TRATAMENTO", "NECESSIDADE_PROCEDIMENTO"]
+        },
+        "surface": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "updatedByEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "toothNumber",
+        "condition",
+        "surface",
+        "notes",
+        "updatedByEmail",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Inter-clinic specialty referral record.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "originSpecialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "destinationSpecialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "responsibleProfessional": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "responsibleEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "reason": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "date": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "priority": { "type": "string", "enum": ["BAIXA", "MEDIA", "ALTA", "URGENTE"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["PENDENTE", "ACEITO", "EM_ATENDIMENTO", "CONCLUIDO", "CANCELADO"] },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "patientId",
+        "patientName",
+        "originSpecialty",
+        "destinationSpecialty",
+        "responsibleProfessional",
+        "responsibleEmail",
+        "reason",
+        "date",
+        "priority",
+        "notes",
+        "status",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Attendance and absence tracking log enforcing RN01 (2 unjustified absences rule).",
+      "type": "object",
+      "properties": {
+        "appointmentId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "date": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "type": {
+          "type": "string",
+          "enum": ["PRESENCA", "FALTA_JUSTIFICADA", "FALTA_NAO_JUSTIFICADA", "CANCELAMENTO", "REMARCACAO"]
+        },
+        "justification": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "triggeredProgramRemoval": { "type": "boolean" },
+        "recordedByEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "appointmentId",
+        "patientId",
+        "patientName",
+        "date",
+        "type",
+        "justification",
+        "triggeredProgramRemoval",
+        "recordedByEmail",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "Specialty": {
+      "title": "Specialty",
+      "description": "Dental specialty configuration.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "code": { "type": "string", "minLength": 2, "maxLength": 20 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "active": { "type": "boolean" },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["name", "code", "description", "active", "institutionDomain", "createdByUid"]
+    },
+    "Clinic": {
+      "title": "Clinic",
+      "description": "University dental clinic physical sector/room configuration.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "location": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "capacity": { "type": "number" },
+        "active": { "type": "boolean" },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["name", "specialty", "location", "capacity", "active", "institutionDomain", "createdByUid"]
+    },
+    "StudentProfile": {
+      "title": "StudentProfile",
+      "description": "Odontology student academic profile and clinical assignment.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "minLength": 15, "maxLength": 120, "pattern": "^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$" },
+        "enrollmentNumber": { "type": "string", "minLength": 2, "maxLength": 30 },
+        "semester": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "specialtyClinic": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "supervisorEmail": { "type": "string", "minLength": 15, "maxLength": 120 },
+        "active": { "type": "boolean" },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "name",
+        "email",
+        "enrollmentNumber",
+        "semester",
+        "specialtyClinic",
+        "supervisorEmail",
+        "active",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "ProfessorProfile": {
+      "title": "ProfessorProfile",
+      "description": "Supervisor professor profile and specialty assignment.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "minLength": 15, "maxLength": 120, "pattern": "^[a-zA-Z0-9._%+\\-]+@cs\\.udf\\.edu\\.br$" },
+        "cro": { "type": "string", "minLength": 2, "maxLength": 30 },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "clinicName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "active": { "type": "boolean" },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": ["name", "email", "cro", "specialty", "clinicName", "active", "institutionDomain", "createdByUid"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Patient and staff notification log prepared for WhatsApp/SMS dispatch.",
+      "type": "object",
+      "properties": {
+        "recipientName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "recipientContact": { "type": "string", "minLength": 3, "maxLength": 120 },
+        "type": {
+          "type": "string",
+          "enum": ["CONFIRMACAO", "LEMBRETE", "ALTERACAO_HORARIO", "CANCELAMENTO", "ENCAMINHAMENTO", "AVISO_TRIAGEM", "ALERTA_FALTAS"]
+        },
+        "channel": { "type": "string", "enum": ["SISTEMA", "WHATSAPP_FILA", "EMAIL"] },
+        "message": { "type": "string", "minLength": 2, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["PENDENTE", "ENVIADA", "LIDA"] },
+        "date": { "type": "string", "minLength": 8, "maxLength": 30 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "recipientName",
+        "recipientContact",
+        "type",
+        "channel",
+        "message",
+        "status",
+        "date",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable LGPD-compliant security and clinical operation audit log.",
+      "type": "object",
+      "properties": {
+        "userName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "userEmail": { "type": "string", "minLength": 5, "maxLength": 120 },
+        "userRole": { "type": "string", "enum": ["ADMIN", "RECEPCAO", "TRIAGEM", "PROFESSOR", "ALUNO"] },
+        "action": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "targetRecord": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "operationSummary": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "timestampIso": { "type": "string", "minLength": 8, "maxLength": 40 },
+        "institutionDomain": { "type": "string", "enum": ["cs.udf.edu.br"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" }
+      },
+      "required": [
+        "userName",
+        "userEmail",
+        "userRole",
+        "action",
+        "targetRecord",
+        "operationSummary",
+        "timestampIso",
+        "institutionDomain",
+        "createdByUid"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Institutional user accounts and active RBAC profile."
+    },
+    "/patients/{patientId}": {
+      "schema": "Patient",
+      "description": "Registered dental clinic patients and administrative status."
+    },
+    "/waiting_list/{entryId}": {
+      "schema": "WaitingListEntry",
+      "description": "Centralized patient waiting list entries."
+    },
+    "/screenings/{screeningId}": {
+      "schema": "Screening",
+      "description": "Initial dental screening and triage records."
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Scheduled clinical appointments."
+    },
+    "/availability/{availabilityId}": {
+      "schema": "Availability",
+      "description": "Professor clinical schedule availability slots."
+    },
+    "/medical_records/{recordId}": {
+      "schema": "MedicalRecord",
+      "description": "Electronic medical records (EHR) and treatment plans."
+    },
+    "/anamnesis/{anamnesisId}": {
+      "schema": "Anamnesis",
+      "description": "Patient clinical anamnesis records."
+    },
+    "/clinical_evolution/{evolutionId}": {
+      "schema": "ClinicalEvolution",
+      "description": "Session-by-session clinical evolution entries."
+    },
+    "/procedures/{procedureId}": {
+      "schema": "Procedure",
+      "description": "Standardized dental procedures catalog."
+    },
+    "/odontograms/{odontogramId}": {
+      "schema": "Odontogram",
+      "description": "Visual odontogram tooth states."
+    },
+    "/referrals/{referralId}": {
+      "schema": "Referral",
+      "description": "Inter-specialty clinical referrals."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "AttendanceRecord",
+      "description": "Attendance and absence verification records."
+    },
+    "/specialties/{specialtyId}": {
+      "schema": "Specialty",
+      "description": "University dental clinic specialties."
+    },
+    "/clinics/{clinicId}": {
+      "schema": "Clinic",
+      "description": "Physical dental clinics and capacities."
+    },
+    "/students/{studentId}": {
+      "schema": "StudentProfile",
+      "description": "Odontology student directory."
+    },
+    "/professors/{professorId}": {
+      "schema": "ProfessorProfile",
+      "description": "Supervising professor directory."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "NotificationItem",
+      "description": "Notification dispatch queue and history."
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Immutable security and clinical audit trail."
+    }
+  }
+}
