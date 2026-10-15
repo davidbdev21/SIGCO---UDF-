@@ -17,8 +17,11 @@ export type PatientStatus =
 export type WaitingListStatus =
   | 'AGUARDANDO_TRIAGEM'
   | 'AGUARDANDO_VAGA'
+  | 'PRESENTE'
+  | 'CHAMADO'
   | 'EM_ATENDIMENTO'
   | 'ATENDIDO'
+  | 'NAO_COMPARECEU'
   | 'REMOVIDO';
 
 export type AppointmentStatus =
@@ -104,6 +107,12 @@ export interface WaitingListEntry {
   responsibleName: string;
   institutionDomain: 'cs.udf.edu.br';
   createdByUid: string;
+  // Campos de fluxo presencial da recepção / clínica
+  checkInTime?: string;
+  callTime?: string;
+  boxCadeira?: string;
+  queueType?: 'AGENDADO' | 'ENCAIXE' | 'URGENCIA' | 'ESPONTANEA';
+  appointmentId?: string;
 }
 
 export interface Screening {

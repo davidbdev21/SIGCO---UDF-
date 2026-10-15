@@ -52,6 +52,7 @@ interface ClinicDataContextValue {
   updateWaitingListLocal: (id: string, updates: Partial<WaitingListEntry>) => void;
   removeWaitingListLocal: (id: string) => void;
   addWaitingListLocal: (entry: WaitingListEntry) => void;
+  updateAppointmentLocal: (id: string, updates: Partial<Appointment>) => void;
 }
 
 const ClinicDataContext = createContext<ClinicDataContextValue | undefined>(undefined);
@@ -96,6 +97,15 @@ export const ClinicDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addWaitingListLocal = React.useCallback((entry: WaitingListEntry) => {
     setWaitingList((prev) => [...prev, entry]);
   }, []);
+
+  const updateAppointmentLocal = React.useCallback(
+    (id: string, updates: Partial<Appointment>) => {
+      setAppointments((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+      );
+    },
+    []
+  );
 
   useEffect(() => {
     if (!firebaseUser) {
@@ -351,6 +361,7 @@ export const ClinicDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updateWaitingListLocal,
         removeWaitingListLocal,
         addWaitingListLocal,
+        updateAppointmentLocal,
       }}
     >
       {children}

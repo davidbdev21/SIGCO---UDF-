@@ -1,3 +1,4 @@
+import http from 'http';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -28,6 +29,7 @@ const authorizedAccountsRegistry = new Map<string, { active: boolean }>([
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   const PORT = 3000;
 
   app.use(express.json());
@@ -287,9 +289,20 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
+    const isHttps = process.env.APP_URL?.startsWith('https://') || Boolean(process.env.K_SERVICE);
     const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa'
+      server: {
+        middlewareMode: true,
+        hmr: isHmrDisabled
+          ? false
+          : {
+              server: httpServer,
+              clientPort: isHttps ? 443 : undefined,
+            },
+        watch: isHmrDisabled ? null : {},
+      },
+      appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
@@ -300,8 +313,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`SIGCO Server running on http://localhost:${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`SIGCO Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -7,6 +7,10 @@ import {
   Clock,
   UserCheck,
   X,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  CalendarRange,
 } from 'lucide-react';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db, getFriendlyErrorMessage } from '../services/firebase';
@@ -26,6 +30,54 @@ import {
 } from '../services/clinicService';
 import { ContextualHelp } from '../components/ContextualHelp';
 
+// Helper utilities for date arithmetic and localized formatting
+function parseYMD(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
+}
+
+function toYMD(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getTodayYMD(): string {
+  return toYMD(new Date());
+}
+
+function getWeekInterval(dateStr: string) {
+  const d = parseYMD(dateStr);
+  const dayOfWeek = d.getDay(); // 0 = Domingo
+  const start = new Date(d);
+  start.setDate(d.getDate() - dayOfWeek);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  const startStr = toYMD(start);
+  const endStr = toYMD(end);
+
+  const days: { dateStr: string; dayLabel: string; dayNum: number; isSelected: boolean; isToday: boolean }[] = [];
+  const todayStr = getTodayYMD();
+  const weekDayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  for (let i = 0; i < 7; i++) {
+    const cur = new Date(start);
+    cur.setDate(start.getDate() + i);
+    const cStr = toYMD(cur);
+    days.push({
+      dateStr: cStr,
+      dayLabel: weekDayNames[i],
+      dayNum: cur.getDate(),
+      isSelected: cStr === dateStr,
+      isToday: cStr === todayStr,
+    });
+  }
+
+  return { startStr, endStr, days };
+}
+
 export const SchedulePage: React.FC = () => {
   const { systemUser } = useAuth();
   const {
@@ -35,6 +87,7 @@ export const SchedulePage: React.FC = () => {
     students,
     professors,
     clinics,
+    updateAppointmentLocal,
   } = useClinicData();
 
   const [viewMode, setViewMode] = useState<'daily' | 'weekly' | 'monthly' | 'availability'>('daily');
@@ -42,6 +95,65 @@ export const SchedulePage: React.FC = () => {
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [availabilityModalOpen, setAvailabilityModalOpen] = useState(false);
   const [attendanceModalApt, setAttendanceModalApt] = useState<Appointment | null>(null);
+
+  // Navigation handlers
+  const handlePrevPeriod = () => {
+    const d = parseYMD(selectedDate);
+    if (viewMode === 'daily') {
+      d.setDate(d.getDate() - 1);
+    } else if (viewMode === 'weekly') {
+      d.setDate(d.getDate() - 7);
+    } else if (viewMode === 'monthly') {
+      d.setMonth(d.getMonth() - 1);
+    }
+    setSelectedDate(toYMD(d));
+  };
+
+  const handleNextPeriod = () => {
+    const d = parseYMD(selectedDate);
+    if (viewMode === 'daily') {
+      d.setDate(d.getDate() + 1);
+    } else if (viewMode === 'weekly') {
+      d.setDate(d.getDate() + 7);
+    } else if (viewMode === 'monthly') {
+      d.setMonth(d.getMonth() + 1);
+    }
+    setSelectedDate(toYMD(d));
+  };
+
+  const handleToday = () => {
+    setSelectedDate(getTodayYMD());
+  };
+
+  const handleJumpToDemo = () => {
+    setSelectedDate('2026-10-05');
+  };
+
+  const weekInterval = getWeekInterval(selectedDate);
+
+  const getPeriodLabel = () => {
+    if (viewMode === 'daily') {
+      const d = parseYMD(selectedDate);
+      const text = d.toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      });
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+    if (viewMode === 'weekly') {
+      const startD = parseYMD(weekInterval.startStr);
+      const endD = parseYMD(weekInterval.endStr);
+      return `Semana de ${startD.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} a ${endD.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+    }
+    if (viewMode === 'monthly') {
+      const d = parseYMD(selectedDate);
+      const mText = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+      return mText.charAt(0).toUpperCase() + mText.slice(1);
+    }
+    return 'Grade Semanal de Supervisores';
+  };
 
   // Schedule form state
   const [patientId, setPatientId] = useState('');
@@ -88,7 +200,7 @@ export const SchedulePage: React.FC = () => {
 
   const displayedAppointments = scopedAppointments.filter((apt) => {
     if (viewMode === 'daily') return apt.date === selectedDate;
-    if (viewMode === 'weekly') return apt.date >= '2026-10-04' && apt.date <= '2026-10-10';
+    if (viewMode === 'weekly') return apt.date >= weekInterval.startStr && apt.date <= weekInterval.endStr;
     if (viewMode === 'monthly') return apt.date.startsWith(selectedDate.slice(0, 7));
     return true;
   });
@@ -193,13 +305,14 @@ export const SchedulePage: React.FC = () => {
   };
 
   const handleConfirmPresenceQuick = async (apt: Appointment) => {
+    updateAppointmentLocal(apt.id, { status: 'CONFIRMADA' });
     try {
       await updateDoc(doc(db, 'appointments', apt.id), {
         status: 'CONFIRMADA',
       });
       setFeedback({
         type: 'success',
-        message: `Presença confirmada na recepção para ${apt.patientName}.`,
+        message: `Presença confirmada na recepção para ${apt.patientName}. Consulta atualizada para CONFIRMADA.`,
       });
     } catch (error) {
       setFeedback({
@@ -321,42 +434,133 @@ export const SchedulePage: React.FC = () => {
         </div>
       )}
 
-      {/* View Mode Switcher & Date Selector */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F1F5F9] rounded-xl self-start">
-          {(
-            [
-              { id: 'daily', label: 'Visão Diária' },
-              { id: 'weekly', label: 'Visão Semanal' },
-              { id: 'monthly', label: 'Visão Mensal' },
-              { id: 'availability', label: 'Disponibilidade dos Professores' },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setViewMode(tab.id)}
-              className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
-                viewMode === tab.id
-                  ? 'bg-[#00AEEF] text-white shadow-2xs font-semibold'
-                  : 'text-[#64748B] hover:text-[#003366]'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* View Mode Switcher & Date Navigation Controls */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F1F5F9] rounded-xl self-start">
+            {(
+              [
+                { id: 'daily', label: 'Visão Diária' },
+                { id: 'weekly', label: 'Visão Semanal' },
+                { id: 'monthly', label: 'Visão Mensal' },
+                { id: 'availability', label: 'Disponibilidade dos Professores' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setViewMode(tab.id)}
+                className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                  viewMode === tab.id
+                    ? 'bg-[#00AEEF] text-white shadow-2xs font-semibold'
+                    : 'text-[#64748B] hover:text-[#003366]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {viewMode !== 'availability' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePrevPeriod}
+                className="p-1.5 rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-[#E6F6FF] text-[#003366] transition-colors cursor-pointer"
+                title="Período anterior"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-xl bg-[#F8FAFC]">
+                <CalendarIcon className="w-4 h-4 text-[#00AEEF]" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-xs tabular-nums text-[#1E293B] bg-transparent focus:outline-none cursor-pointer"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleNextPeriod}
+                className="p-1.5 rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-[#E6F6FF] text-[#003366] transition-colors cursor-pointer"
+                title="Próximo período"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToday}
+                className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-200 bg-[#F8FAFC] hover:bg-[#E6F6FF] text-[#003366] transition-colors cursor-pointer"
+                title="Ir para o dia atual"
+              >
+                Hoje
+              </button>
+
+              {selectedDate !== '2026-10-05' && (
+                <button
+                  type="button"
+                  onClick={handleJumpToDemo}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-xl border border-dashed border-[#00AEEF] text-[#007BFF] hover:bg-[#E6F6FF] transition-colors cursor-pointer inline-flex items-center gap-1"
+                  title="Restaurar data com consultas acadêmicas simuladas"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Semana Demo (05/10/2026)</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
+        {/* Period Details & Context */}
         {viewMode !== 'availability' && (
-          <div className="flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4 text-[#00AEEF]" />
-            <span className="text-xs font-medium text-[#003366]">Data de Referência:</span>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-1.5 text-xs tabular-nums border border-slate-200 rounded-xl bg-[#F8FAFC] text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#00AEEF]"
-            />
+          <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#003366]">{getPeriodLabel()}</span>
+              <span className="text-[11px] text-[#64748B]">·</span>
+              <span className="text-[11px] font-medium text-[#64748B]">
+                {displayedAppointments.length}{' '}
+                {displayedAppointments.length === 1 ? 'consulta encontrada' : 'consultas encontradas'}
+              </span>
+            </div>
+
+            {/* Weekly Interactive Strip */}
+            {viewMode === 'weekly' && (
+              <div className="flex items-center gap-1 overflow-x-auto py-1">
+                {weekInterval.days.map((day) => {
+                  const countForDay = scopedAppointments.filter((a) => a.date === day.dateStr).length;
+                  return (
+                    <button
+                      key={day.dateStr}
+                      type="button"
+                      onClick={() => setSelectedDate(day.dateStr)}
+                      className={`px-2.5 py-1 rounded-lg text-center text-xs transition-colors cursor-pointer border ${
+                        day.isSelected
+                          ? 'bg-[#003366] text-white border-[#003366] font-bold shadow-2xs'
+                          : countForDay > 0
+                          ? 'bg-[#E6F6FF] text-[#003366] border-[#00AEEF]/40 hover:bg-[#00AEEF] hover:text-white'
+                          : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="text-[10px] leading-tight">{day.dayLabel}</div>
+                      <div className="text-xs font-semibold tabular-nums leading-tight">{day.dayNum}</div>
+                      {countForDay > 0 && (
+                        <div
+                          className={`text-[9px] font-bold mt-0.5 px-1 rounded ${
+                            day.isSelected ? 'bg-[#00AEEF] text-white' : 'text-[#007BFF]'
+                          }`}
+                        >
+                          {countForDay} {countForDay === 1 ? 'cons.' : 'cons.'}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

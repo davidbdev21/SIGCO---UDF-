@@ -1,6 +1,6 @@
 import React from 'react';
-import { Patient, PriorityLevel } from '../types';
-import { PATIENT_STATUS_LABELS, PRIORITY_LABELS } from '../utils/validation';
+import { Patient, PriorityLevel, WaitingListStatus } from '../types';
+import { PATIENT_STATUS_LABELS, PRIORITY_LABELS, WAITING_LIST_STATUS_LABELS } from '../utils/validation';
 
 interface UdfLogoProps {
   variant?: 'default' | 'light';
@@ -212,6 +212,33 @@ export const PriorityBadge: React.FC<{ priority: PriorityLevel }> = ({ priority 
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border whitespace-nowrap ${styleMap[priority]}`}
+    >
+      {label}
+    </span>
+  );
+};
+
+/**
+ * Discreet Institutional Waiting List Status Badge
+ */
+export const WaitingListStatusBadge: React.FC<{ status: WaitingListStatus }> = ({ status }) => {
+  const label = WAITING_LIST_STATUS_LABELS[status] || status;
+  const styleMap: Record<WaitingListStatus, string> = {
+    AGUARDANDO_TRIAGEM: 'bg-[#E6F6FF] text-[#007BFF] border-[#007BFF]/30',
+    AGUARDANDO_VAGA: 'bg-amber-50 text-amber-800 border-amber-200',
+    PRESENTE: 'bg-blue-50 text-[#003366] border-[#00AEEF]/50 font-semibold',
+    CHAMADO: 'bg-purple-50 text-purple-800 border-purple-200 font-semibold',
+    EM_ATENDIMENTO: 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium',
+    ATENDIDO: 'bg-teal-50 text-teal-800 border-teal-200',
+    NAO_COMPARECEU: 'bg-red-50 text-red-700 border-red-200',
+    REMOVIDO: 'bg-slate-100 text-slate-600 border-slate-300',
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] border whitespace-nowrap ${
+        styleMap[status] || 'bg-slate-50 text-slate-700 border-slate-200'
+      }`}
     >
       {label}
     </span>

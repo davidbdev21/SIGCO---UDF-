@@ -1,4 +1,4 @@
-import { NavigationTab, Patient, UserRole } from '../types';
+import { NavigationTab, Patient, UserRole, WaitingListStatus } from '../types';
 
 // Verbatim patterns and limits synced with firebase-blueprint.json & firestore.rules
 export const INSTITUTIONAL_EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@cs\.udf\.edu\.br$/;
@@ -148,6 +148,17 @@ export const PRIORITY_LABELS: Record<Patient['priority'], string> = {
   MEDIA: 'Média',
   ALTA: 'Alta',
   URGENTE: 'Urgente',
+};
+
+export const WAITING_LIST_STATUS_LABELS: Record<WaitingListStatus, string> = {
+  AGUARDANDO_TRIAGEM: 'Aguardando triagem',
+  AGUARDANDO_VAGA: 'Aguardando vaga',
+  PRESENTE: 'Presente na recepção',
+  CHAMADO: 'Chamado ao box/cadeira',
+  EM_ATENDIMENTO: 'Em atendimento',
+  ATENDIDO: 'Atendimento concluído',
+  NAO_COMPARECEU: 'Não compareceu',
+  REMOVIDO: 'Removido da fila',
 };
 
 export const INITIAL_SPECIALTIES = [
