@@ -22,7 +22,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const { systemUser } = useAuth();
   const {
     visiblePatients,
-    waitingList,
+    screenings,
     appointments,
     auditLogs,
     dataLoading,
@@ -31,9 +31,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   if (!systemUser) return null;
 
   const todayStr = '2026-10-05';
-  const waitingCount = waitingList.filter(
-    (w) => w.status === 'AGUARDANDO_TRIAGEM' || w.status === 'AGUARDANDO_VAGA'
-  ).length;
   const inTreatmentCount = visiblePatients.filter((p) => p.status === 'EM_TRATAMENTO').length;
 
   const scopedAppointments =
@@ -105,7 +102,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         )}
       </div>
 
-      {/* Section 8: ONLY the 4 Truly Important Indicators (Pacientes, Consultas de hoje, Lista de espera, Em tratamento) */}
+      {/* Section 8: ONLY the 4 Truly Important Indicators (Pacientes, Consultas de hoje, Triagens, Em tratamento) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
           type="button"
@@ -141,18 +138,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
 
         <button
           type="button"
-          onClick={() =>
-            onNavigate(systemUser.role === 'ALUNO' ? 'patients' : 'waiting_list')
-          }
+          onClick={() => onNavigate('screening')}
           className="bg-white border border-slate-200 hover:border-[#00AEEF] rounded-2xl p-5 text-left transition-colors flex items-center gap-4 cursor-pointer"
         >
           <div className="w-11 h-11 rounded-xl bg-[#E6F6FF] flex items-center justify-center shrink-0">
-            <Clock className="w-5 h-5 text-[#00AEEF]" />
+            <Stethoscope className="w-5 h-5 text-[#00AEEF]" />
           </div>
           <div>
-            <div className="text-xs font-medium text-[#64748B]">Lista de espera</div>
+            <div className="text-xs font-medium text-[#64748B]">Triagens clínicas</div>
             <div className="text-2xl font-bold text-[#003366] tabular-nums mt-0.5">
-              {dataLoading ? '...' : waitingCount}
+              {dataLoading ? '...' : screenings.length}
             </div>
           </div>
         </button>

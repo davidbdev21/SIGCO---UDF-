@@ -13,7 +13,6 @@ import { InteractiveTour, TOUR_STORAGE_KEY } from './components/InteractiveTour'
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { PatientsPage } from './pages/PatientsPage';
-import { WaitingListPage } from './pages/WaitingListPage';
 import { ScreeningPage } from './pages/ScreeningPage';
 import { SchedulePage } from './pages/SchedulePage';
 import { MedicalRecordsPage } from './pages/MedicalRecordsPage';
@@ -76,7 +75,6 @@ const MainRouter: React.FC = () => {
       >
         {activeTab === 'dashboard' && <DashboardPage onNavigate={setActiveTab} />}
         {activeTab === 'patients' && <PatientsPage />}
-        {activeTab === 'waiting_list' && <WaitingListPage onNavigate={setActiveTab} />}
         {activeTab === 'screening' && <ScreeningPage />}
         {activeTab === 'schedule' && <SchedulePage />}
         {activeTab === 'medical_records' && <MedicalRecordsPage />}

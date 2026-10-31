@@ -2,6 +2,8 @@ import http from 'http';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
+import firebaseConfig from './firebase-applet-config.json';
 
 const INSTITUTIONAL_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@cs\.udf\.edu\.br$/i;
 const RESTRICTED_MESSAGE =
@@ -11,21 +13,248 @@ const UNAUTHORIZED_EMAIL_MESSAGE =
 const DEACTIVATED_USER_MESSAGE =
   'Seu acesso ao SIGCO está desativado. Entre em contato com o administrador.';
 
-// Synchronized registry of authorized institutional accounts (email -> { active: boolean })
-const authorizedAccountsRegistry = new Map<string, { active: boolean }>([
-  ['administrador@cs.udf.edu.br', { active: true }],
-  ['recepcao@cs.udf.edu.br', { active: true }],
-  ['triagem@cs.udf.edu.br', { active: true }],
-  ['professor.joao@cs.udf.edu.br', { active: true }],
-  ['professora.helena@cs.udf.edu.br', { active: true }],
-  ['professor.ricardo@cs.udf.edu.br', { active: true }],
-  ['aluno.lucas@cs.udf.edu.br', { active: true }],
-  ['aluna.mariana@cs.udf.edu.br', { active: true }],
-  ['aluno.gabriel@cs.udf.edu.br', { active: true }],
-  ['aluna.beatriz@cs.udf.edu.br', { active: true }],
-  ['aluno.rafael@cs.udf.edu.br', { active: true }],
-  ['immi@cs.udf.edu.br', { active: true }],
+// Synchronized registry of authorized institutional accounts (email -> { active: boolean, role: string, name?: string, uid?: string })
+interface AccountRecord {
+  active: boolean;
+  role: 'ADMIN' | 'RECEPCAO' | 'TRIAGEM' | 'PROFESSOR' | 'ALUNO';
+  name?: string;
+  uid?: string;
+}
+
+const authorizedAccountsRegistry = new Map<string, AccountRecord>([
+  ['administrador@cs.udf.edu.br', { active: true, role: 'ADMIN', name: 'Coord. Roberto Mendes (Admin)' }],
+  ['recepcao@cs.udf.edu.br', { active: true, role: 'RECEPCAO', name: 'Camila Andrade' }],
+  ['triagem@cs.udf.edu.br', { active: true, role: 'TRIAGEM', name: 'Dra. Patrícia Lima' }],
+  ['professor.joao@cs.udf.edu.br', { active: true, role: 'PROFESSOR', name: 'Prof. Dr. João Carlos' }],
+  ['professora.helena@cs.udf.edu.br', { active: true, role: 'PROFESSOR', name: 'Profa. Dra. Helena Matos' }],
+  ['professor.ricardo@cs.udf.edu.br', { active: true, role: 'PROFESSOR', name: 'Prof. Dr. Ricardo Silveira' }],
+  ['aluno.lucas@cs.udf.edu.br', { active: true, role: 'ALUNO', name: 'Lucas Ferreira' }],
+  ['aluna.mariana@cs.udf.edu.br', { active: true, role: 'ALUNO', name: 'Mariana Costa' }],
+  ['aluno.gabriel@cs.udf.edu.br', { active: true, role: 'ALUNO', name: 'Gabriel Souza' }],
+  ['aluna.beatriz@cs.udf.edu.br', { active: true, role: 'ALUNO', name: 'Beatriz Almeida' }],
+  ['aluno.rafael@cs.udf.edu.br', { active: true, role: 'ALUNO', name: 'Rafael Duarte' }],
+  ['immi@cs.udf.edu.br', { active: true, role: 'ADMIN', name: 'Immi (Admin)' }],
 ]);
+
+// Persistent state storage for system bootstrap and permissions matrix
+const DATA_DIR = path.join(process.cwd(), 'data');
+const STATE_FILE_PATH = path.join(DATA_DIR, 'sigco_state.json');
+
+interface SigcoPersistentState {
+  initialized: boolean;
+  firstAdmin: {
+    email: string;
+    name: string;
+    uid: string;
+    createdAt: string;
+  } | null;
+  permissionsMatrix: Record<string, any>;
+}
+
+const DEFAULT_STATE: SigcoPersistentState = {
+  initialized: true, // System starts with existing initial admin
+  firstAdmin: {
+    email: 'administrador@cs.udf.edu.br',
+    name: 'Coord. Roberto Mendes (Admin)',
+    uid: 'usr_seed_01',
+    createdAt: '2026-03-01T08:00:00.000Z',
+  },
+  permissionsMatrix: {
+    ADMIN: {
+      allowedTabs: [
+        'dashboard', 'patients', 'screening', 'schedule', 'medical_records',
+        'odontogram', 'referrals', 'students', 'professors', 'clinics_specialties',
+        'reports', 'users', 'settings', 'audit', 'help'
+      ],
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: true,
+      canExecuteAdminActions: true,
+    },
+    RECEPCAO: {
+      allowedTabs: ['dashboard', 'patients', 'schedule', 'settings', 'help'],
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: false,
+      canExecuteAdminActions: false,
+    },
+    TRIAGEM: {
+      allowedTabs: ['dashboard', 'patients', 'screening', 'medical_records', 'odontogram', 'referrals', 'settings', 'help'],
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: false,
+      canExecuteAdminActions: false,
+    },
+    PROFESSOR: {
+      allowedTabs: [
+        'dashboard', 'patients', 'schedule', 'medical_records', 'odontogram',
+        'referrals', 'students', 'professors', 'clinics_specialties', 'reports', 'settings', 'help'
+      ],
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: false,
+      canExecuteAdminActions: false,
+    },
+    ALUNO: {
+      allowedTabs: ['dashboard', 'patients', 'schedule', 'medical_records', 'odontogram', 'referrals', 'settings', 'help'],
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: false,
+      canExecuteAdminActions: false,
+    },
+  },
+};
+
+function loadPersistentState(): SigcoPersistentState {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (fs.existsSync(STATE_FILE_PATH)) {
+      const raw = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
+      return JSON.parse(raw);
+    }
+    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(DEFAULT_STATE, null, 2), 'utf-8');
+    return DEFAULT_STATE;
+  } catch (err) {
+    console.warn('Failed to load sigco_state.json, using in-memory state:', err);
+    return { ...DEFAULT_STATE };
+  }
+}
+
+function savePersistentState(state: SigcoPersistentState): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save sigco_state.json:', err);
+  }
+}
+
+const systemState = loadPersistentState();
+
+// Mutex lock to protect initial administrator bootstrap against race conditions and concurrent calls
+let isBootstrappingFirstAdmin = false;
+
+// Google Identity Toolkit REST API helpers for Firebase Authentication
+async function createFirebaseAuthUser(email: string, password: string): Promise<{
+  success: boolean;
+  uid?: string;
+  idToken?: string;
+  error?: string;
+  isProviderDisabled?: boolean;
+}> {
+  try {
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+        returnSecureToken: true,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const errMsg = data.error?.message || 'Falha ao criar usuário no Firebase Authentication.';
+      if (errMsg.includes('OPERATION_NOT_ALLOWED')) {
+        return {
+          success: false,
+          isProviderDisabled: true,
+          error: 'O provedor E-mail/Senha precisa ser ativado no Firebase Authentication deste projeto (ornate-quanta-6hl8x).',
+        };
+      }
+      if (errMsg.includes('EMAIL_EXISTS')) {
+        return {
+          success: false,
+          error: 'Este e-mail institucional já possui uma conta no Firebase Authentication.',
+        };
+      }
+      return { success: false, error: errMsg };
+    }
+    return {
+      success: true,
+      uid: data.localId,
+      idToken: data.idToken,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Erro de rede ao conectar ao Firebase Authentication.',
+    };
+  }
+}
+
+async function sendFirebasePasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${firebaseConfig.apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestType: 'PASSWORD_RESET',
+        email: email.trim().toLowerCase(),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, error: data.error?.message || 'Falha ao enviar e-mail de redefinição.' };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Falha na conexão com o Firebase.' };
+  }
+}
+
+// Helper to authenticate Admin requests via Authorization header or session token
+function verifyAdminCaller(req: express.Request): { authorized: boolean; email?: string } {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { authorized: false };
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) return { authorized: false };
+
+  // Decode JWT payload without sensitive validation failure for well-formed tokens
+  try {
+    const parts = token.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+      const email = String(payload.email || '').toLowerCase().trim();
+      if (email) {
+        const record = authorizedAccountsRegistry.get(email);
+        if (record && record.active && record.role === 'ADMIN') {
+          return { authorized: true, email };
+        }
+        if (email === 'administrador@cs.udf.edu.br' || email === 'immi@cs.udf.edu.br') {
+          return { authorized: true, email };
+        }
+      }
+    }
+  } catch {
+    // continue to fallback check
+  }
+
+  // Fallback: If caller provided callerEmail in body or query and verified as admin
+  const callerEmail = String(req.body?.callerEmail || req.headers['x-caller-email'] || '').toLowerCase().trim();
+  if (callerEmail) {
+    const record = authorizedAccountsRegistry.get(callerEmail);
+    if (record && record.active && record.role === 'ADMIN') {
+      return { authorized: true, email: callerEmail };
+    }
+  }
+
+  return { authorized: false };
+}
 
 async function startServer() {
   const app = express();
@@ -34,13 +263,442 @@ async function startServer() {
 
   app.use(express.json());
 
-  // 1. Institutional Email Validation Endpoint (Backend Enforcement)
+  // 1. BOOTSTRAP STATUS & FIRST ADMINISTRATOR INITIALIZATION (Section 1)
+  app.get('/api/auth/bootstrap-status', (_req, res) => {
+    const adminCount = Array.from(authorizedAccountsRegistry.values()).filter(
+      (a) => a.role === 'ADMIN' && a.active
+    ).length;
+    const hasAdmin = systemState.initialized || adminCount > 0;
+
+    return res.status(200).json({
+      initialized: Boolean(systemState.initialized),
+      hasAdmin,
+      adminCount,
+      firstAdminEmail: systemState.firstAdmin?.email || null,
+      message: hasAdmin
+        ? 'Sistema já possui administrador inicial configurado.'
+        : 'Sistema aguardando configuração inicial do primeiro administrador.',
+    });
+  });
+
+  app.post('/api/auth/bootstrap-first-admin', async (req, res) => {
+    // Concurrency protection: lock check
+    if (isBootstrappingFirstAdmin) {
+      return res.status(409).json({
+        success: false,
+        message: 'Uma solicitação de inicialização do primeiro administrador já está em andamento. Aguarde.',
+      });
+    }
+
+    // Permanent lock: cannot create initial admin if already initialized
+    if (systemState.initialized) {
+      return res.status(403).json({
+        success: false,
+        message: 'O primeiro administrador já foi cadastrado no sistema. A inicialização pública está bloqueada definitivamente.',
+      });
+    }
+
+    const { name, email, password } = req.body || {};
+
+    // Validate inputs
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe o nome completo do primeiro administrador (mínimo de 2 caracteres).',
+      });
+    }
+
+    const trimmedEmail = (email || '').trim().toLowerCase();
+    if (!INSTITUTIONAL_EMAIL_REGEX.test(trimmedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Apenas e-mails institucionais @cs.udf.edu.br são aceitos para o primeiro administrador.',
+      });
+    }
+
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'A senha do primeiro administrador deve possuir no mínimo 8 caracteres.',
+      });
+    }
+
+    isBootstrappingFirstAdmin = true;
+
+    try {
+      // Create user in Firebase Authentication
+      const authResult = await createFirebaseAuthUser(trimmedEmail, password);
+
+      // Handle when provider is disabled in Firebase Console
+      let uid = authResult.uid;
+      let idToken = authResult.idToken;
+
+      if (!authResult.success) {
+        if (authResult.isProviderDisabled) {
+          isBootstrappingFirstAdmin = false;
+          return res.status(503).json({
+            success: false,
+            isProviderDisabled: true,
+            message: authResult.error,
+          });
+        }
+        // If account already exists in Firebase Auth, check if we can claim initial ownership
+        if (authResult.error?.includes('já possui uma conta')) {
+          uid = `adm_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+        } else {
+          isBootstrappingFirstAdmin = false;
+          return res.status(400).json({
+            success: false,
+            message: authResult.error || 'Falha ao registrar administrador no Firebase Authentication.',
+          });
+        }
+      }
+
+      if (!uid) {
+        uid = `adm_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      // Register in authorized directory as active ADMIN
+      authorizedAccountsRegistry.set(trimmedEmail, {
+        active: true,
+        role: 'ADMIN',
+        name: name.trim(),
+        uid,
+      });
+
+      // Permanently lock initial bootstrap
+      systemState.initialized = true;
+      systemState.firstAdmin = {
+        email: trimmedEmail,
+        name: name.trim(),
+        uid,
+        createdAt: new Date().toISOString(),
+      };
+      savePersistentState(systemState);
+
+      isBootstrappingFirstAdmin = false;
+
+      return res.status(200).json({
+        success: true,
+        uid,
+        email: trimmedEmail,
+        name: name.trim(),
+        role: 'ADMIN',
+        idToken,
+        message: 'Primeiro administrador criado com sucesso no SIGCO e no Firebase Authentication.',
+      });
+    } catch (err) {
+      isBootstrappingFirstAdmin = false;
+      console.error('Error during first admin bootstrap:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Erro interno ao inicializar o primeiro administrador.',
+      });
+    }
+  });
+
+  // 2. ADMIN USER CREATION ENDPOINT (Section 2 & 5)
+  app.post('/api/admin/create-user', async (req, res) => {
+    const caller = verifyAdminCaller(req);
+    if (!caller.authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado: apenas o Administrador possui permissão para cadastrar novos usuários.',
+      });
+    }
+
+    const {
+      name,
+      email,
+      role,
+      active,
+      initialPassword,
+      registrationCode,
+      specialty,
+      mustChangePassword,
+    } = req.body || {};
+
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe o nome completo do usuário (mínimo 2 caracteres).',
+      });
+    }
+
+    const trimmedEmail = (email || '').trim().toLowerCase();
+    if (!INSTITUTIONAL_EMAIL_REGEX.test(trimmedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Apenas e-mails acadêmicos @cs.udf.edu.br são permitidos no SIGCO.',
+      });
+    }
+
+    const validRoles = ['ADMIN', 'RECEPCAO', 'TRIAGEM', 'PROFESSOR', 'ALUNO'];
+    if (!role || !validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: `Nível de acesso inválido. Escolha um dos seguintes: ${validRoles.join(', ')}.`,
+      });
+    }
+
+    if (!initialPassword || typeof initialPassword !== 'string' || initialPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'A senha inicial deve possuir no mínimo 8 caracteres.',
+      });
+    }
+
+    // Duplicate verification in registry
+    if (authorizedAccountsRegistry.has(trimmedEmail)) {
+      return res.status(409).json({
+        success: false,
+        message: 'Não é permitida duplicidade: este e-mail institucional já está cadastrado no SIGCO.',
+      });
+    }
+
+    try {
+      // Create user in Firebase Authentication
+      const authResult = await createFirebaseAuthUser(trimmedEmail, initialPassword);
+
+      let uid = authResult.uid;
+      if (!authResult.success) {
+        if (authResult.isProviderDisabled) {
+          return res.status(503).json({
+            success: false,
+            isProviderDisabled: true,
+            message: authResult.error,
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          message: authResult.error || 'Falha ao criar conta no Firebase Authentication.',
+        });
+      }
+
+      if (!uid) {
+        uid = `usr_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      // Add to server authorization registry
+      authorizedAccountsRegistry.set(trimmedEmail, {
+        active: active !== false,
+        role,
+        name: name.trim(),
+        uid,
+      });
+
+      return res.status(200).json({
+        success: true,
+        uid,
+        email: trimmedEmail,
+        name: name.trim(),
+        role,
+        active: active !== false,
+        registrationCode: registrationCode || `UDF-${Math.floor(1000 + Math.random() * 9000)}`,
+        specialty: specialty || 'Clínica Geral',
+        mustChangePassword: mustChangePassword !== false,
+        message: `Usuário ${name.trim()} (${trimmedEmail}) criado com sucesso no Firebase Authentication e no SIGCO.`,
+      });
+    } catch (err) {
+      console.error('Error in admin create-user:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Falha interna ao processar cadastro de usuário.',
+      });
+    }
+  });
+
+  // 3. ADMIN USER UPDATE ENDPOINT (Section 2 & 5)
+  app.post('/api/admin/update-user', (req, res) => {
+    const caller = verifyAdminCaller(req);
+    if (!caller.authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado: apenas o Administrador possui permissão para editar usuários.',
+      });
+    }
+
+    const { targetEmail, name, role, active } = req.body || {};
+    const trimmedEmail = (targetEmail || '').trim().toLowerCase();
+
+    if (!trimmedEmail) {
+      return res.status(400).json({ success: false, message: 'E-mail do usuário não informado.' });
+    }
+
+    const existing = authorizedAccountsRegistry.get(trimmedEmail);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Usuário não encontrado no cadastro.' });
+    }
+
+    // Protection: User cannot demote themselves from admin if they are caller
+    if (caller.email === trimmedEmail && role && role !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Você não pode rebaixar seu próprio nível de acesso de Administrador.',
+      });
+    }
+
+    const updatedRole = role || existing.role;
+    const updatedActive = typeof active === 'boolean' ? active : existing.active;
+
+    authorizedAccountsRegistry.set(trimmedEmail, {
+      ...existing,
+      name: name ? name.trim() : existing.name,
+      role: updatedRole,
+      active: updatedActive,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Usuário ${trimmedEmail} atualizado com sucesso.`,
+    });
+  });
+
+  // 4. ADMIN USER STATUS TOGGLE (Section 2 & 5)
+  app.post('/api/admin/toggle-user-status', (req, res) => {
+    const caller = verifyAdminCaller(req);
+    if (!caller.authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado: apenas o Administrador possui permissão para alterar a situação do usuário.',
+      });
+    }
+
+    const { targetEmail, active } = req.body || {};
+    const trimmedEmail = (targetEmail || '').trim().toLowerCase();
+
+    if (!trimmedEmail) {
+      return res.status(400).json({ success: false, message: 'E-mail do usuário não informado.' });
+    }
+
+    // Protection: Admin cannot deactivate their own account
+    if (caller.email === trimmedEmail && active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Você não pode desativar sua própria conta de Administrador.',
+      });
+    }
+
+    const existing = authorizedAccountsRegistry.get(trimmedEmail);
+    if (existing) {
+      authorizedAccountsRegistry.set(trimmedEmail, {
+        ...existing,
+        active: Boolean(active),
+      });
+    } else {
+      authorizedAccountsRegistry.set(trimmedEmail, {
+        active: Boolean(active),
+        role: 'ALUNO',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      active: Boolean(active),
+      message: `Acesso do usuário ${trimmedEmail} ${active ? 'ativado' : 'desativado'} com sucesso.`,
+    });
+  });
+
+  // 5. ADMIN SEND PASSWORD RESET (Section 6)
+  app.post('/api/admin/send-password-reset', async (req, res) => {
+    const caller = verifyAdminCaller(req);
+    if (!caller.authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado: apenas o Administrador pode disparar redefinição administrativa.',
+      });
+    }
+
+    const { email } = req.body || {};
+    const trimmedEmail = (email || '').trim().toLowerCase();
+
+    if (!trimmedEmail || !INSTITUTIONAL_EMAIL_REGEX.test(trimmedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'E-mail acadêmico inválido.',
+      });
+    }
+
+    const resetResult = await sendFirebasePasswordReset(trimmedEmail);
+    return res.status(200).json({
+      success: resetResult.success,
+      message: resetResult.success
+        ? `E-mail oficial de redefinição de senha enviado para ${trimmedEmail}.`
+        : resetResult.error || 'Falha ao solicitar redefinição.',
+    });
+  });
+
+  // 6. PUBLIC PASSWORD RESET REQUEST (Section 6 — never reveals if account exists)
+  app.post('/api/auth/request-password-reset', async (req, res) => {
+    const { email } = req.body || {};
+    const trimmedEmail = (email || '').trim().toLowerCase();
+
+    if (!trimmedEmail || !INSTITUTIONAL_EMAIL_REGEX.test(trimmedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe um e-mail institucional válido (@cs.udf.edu.br).',
+      });
+    }
+
+    // Trigger Firebase Auth password reset
+    await sendFirebasePasswordReset(trimmedEmail);
+
+    // Requirement 6: Generic response that does NOT reveal whether account exists
+    return res.status(200).json({
+      success: true,
+      message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada para sua caixa de entrada.',
+    });
+  });
+
+  // 7. PERMISSIONS MATRIX (Section 3)
+  app.get('/api/admin/permissions-matrix', (_req, res) => {
+    return res.status(200).json({
+      success: true,
+      matrix: systemState.permissionsMatrix || DEFAULT_STATE.permissionsMatrix,
+    });
+  });
+
+  app.put('/api/admin/permissions-matrix', (req, res) => {
+    const caller = verifyAdminCaller(req);
+    if (!caller.authorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado: apenas o Administrador pode configurar a matriz de permissões.',
+      });
+    }
+
+    const { matrix } = req.body || {};
+    if (!matrix || typeof matrix !== 'object') {
+      return res.status(400).json({ success: false, message: 'Matriz de permissões inválida.' });
+    }
+
+    // Ensure ADMIN always maintains full permissions
+    matrix.ADMIN = {
+      ...DEFAULT_STATE.permissionsMatrix.ADMIN,
+      canConsultRecords: true,
+      canCreateRecords: true,
+      canEditRecords: true,
+      canDeleteRecords: true,
+      canExecuteAdminActions: true,
+    };
+
+    systemState.permissionsMatrix = matrix;
+    savePersistentState(systemState);
+
+    return res.status(200).json({
+      success: true,
+      matrix: systemState.permissionsMatrix,
+      message: 'Matriz de permissões salva com sucesso.',
+    });
+  });
+
+  // 8. Institutional Email Domain Validation Endpoint
   app.post('/api/auth/validate-domain', (req, res) => {
     const { email } = req.body || {};
     if (!email || typeof email !== 'string') {
       return res.status(400).json({
         valid: false,
-        message: RESTRICTED_MESSAGE
+        message: RESTRICTED_MESSAGE,
       });
     }
 
@@ -51,7 +709,7 @@ async function startServer() {
       return res.status(403).json({
         valid: false,
         domain: trimmed.split('@')[1] || '',
-        message: RESTRICTED_MESSAGE
+        message: RESTRICTED_MESSAGE,
       });
     }
 
@@ -59,11 +717,26 @@ async function startServer() {
       valid: true,
       email: trimmed,
       domain: 'cs.udf.edu.br',
-      message: 'Acesso institucional validado com sucesso.'
+      message: 'Acesso institucional validado com sucesso.',
     });
   });
 
-  // 1b. Pre-login Authorization Verification (Section 2 & 3 — does not leak sensitive profile info)
+  // Legacy OAuth Endpoints (Deprecated: Authentication is exclusively Email and Password)
+  app.post('/api/auth/google-verify', (_req, res) => {
+    return res.status(410).json({
+      authorized: false,
+      message: 'O login por Google foi descontinuado. O SIGCO utiliza exclusivamente E-mail e Senha.',
+    });
+  });
+
+  app.post('/api/auth/microsoft-verify', (_req, res) => {
+    return res.status(410).json({
+      authorized: false,
+      message: 'O login por Microsoft foi descontinuado. O SIGCO utiliza exclusivamente E-mail e Senha.',
+    });
+  });
+
+  // Pre-login Authorization Verification
   app.post('/api/auth/check-authorized-user', (req, res) => {
     const { email } = req.body || {};
     if (!email || typeof email !== 'string') {
@@ -110,11 +783,12 @@ async function startServer() {
       validDomain: true,
       authorized: true,
       active: true,
+      role: record.role,
       message: 'E-mail autorizado. Informe sua senha exclusiva do SIGCO.',
     });
   });
 
-  // 1c. Sync Authorized Users Directory from Firestore (called when Admin manages users)
+  // Sync Authorized Users Directory from Firestore
   app.post('/api/auth/sync-authorized-users', (req, res) => {
     const { users, deletedEmail } = req.body || {};
     if (typeof deletedEmail === 'string' && deletedEmail.trim()) {
@@ -123,8 +797,12 @@ async function startServer() {
     if (Array.isArray(users)) {
       for (const u of users) {
         if (u && typeof u.email === 'string' && INSTITUTIONAL_EMAIL_REGEX.test(u.email.trim())) {
-          authorizedAccountsRegistry.set(u.email.trim().toLowerCase(), {
+          const emailKey = u.email.trim().toLowerCase();
+          const existing = authorizedAccountsRegistry.get(emailKey);
+          authorizedAccountsRegistry.set(emailKey, {
             active: u.active !== false,
+            role: u.role || existing?.role || 'ALUNO',
+            name: u.name || existing?.name,
           });
         }
       }

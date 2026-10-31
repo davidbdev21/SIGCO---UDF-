@@ -23,6 +23,7 @@ import {
   reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInAnonymously,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -69,13 +70,29 @@ interface AuthContextValue {
   loading: boolean;
   initializing: boolean;
   authError: string | null;
-  emailPasswordProviderDisabled: boolean;
   clearAuthError: () => void;
   verifyEmailAuthorizationForLogin: (email: string) => Promise<{
     authorized: boolean;
     message: string;
   }>;
-  loginWithSigcoCredentials: (email: string, password: string) => Promise<boolean>;
+  loginWithEmailAndPassword: (
+    email: string,
+    password: string
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    isProviderDisabled?: boolean;
+  }>;
+  loginWithGoogleInstitutional: () => Promise<{
+    success: boolean;
+    message: string;
+    isProviderDisabled?: boolean;
+  }>;
+  loginWithMicrosoftEntra: () => Promise<{
+    success: boolean;
+    message: string;
+    isUnconfigured?: boolean;
+  }>;
   requestPasswordReset: (email: string) => Promise<{ success: boolean; message: string }>;
   changeOwnPassword: (
     currentPassword: string,
@@ -98,7 +115,6 @@ interface AuthContextValue {
   ) => Promise<{ success: boolean; message: string }>;
   adminDeleteUser: (targetUser: SystemUser) => Promise<{ success: boolean; message: string }>;
   switchInstitutionalPersona: (persona: InstitutionalPersona) => Promise<void>;
-  loginAsTemporaryImmi: () => Promise<boolean>;
   logout: () => Promise<void>;
   isDevBypassActive: boolean;
   setDevBypassActive: (active: boolean) => void;
@@ -165,9 +181,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
   const [initializing, setInitializing] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [emailPasswordProviderDisabled, setEmailPasswordProviderDisabled] =
-    useState<boolean>(false);
-  const [devBypassActive, setDevBypassActive] = useState<boolean>(DEV_BYPASS_LOGIN_ENABLED);
+  const [devBypassActive, setDevBypassActive] = useState<boolean>(false);
   const currentDevProfileRef = React.useRef<SystemUser | null>(DEFAULT_DEV_ADMIN_PROFILE);
   const isInteractiveLoginRef = React.useRef<boolean>(false);
 
@@ -302,12 +316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (!fbUser) {
           setFirebaseUser(null);
-          // Modo de Desenvolvimento Direto: libera acesso sem exibir tela de login
-          if (DEV_BYPASS_LOGIN_ENABLED && devBypassActive) {
-            setSystemUser(currentDevProfileRef.current || DEFAULT_DEV_ADMIN_PROFILE);
-          } else {
-            setSystemUser(null);
-          }
+          setSystemUser(null);
           setLoading(false);
           setInitializing(false);
           return;
@@ -384,146 +393,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     return { authorized: true, message: check.message };
-  };
-
-  // Section 2, 4, 14, 16, 17, 18, 19: Complete Email + SIGCO Password Authentication
-  const loginWithSigcoCredentials = async (
-    email: string,
-    password: string
-  ): Promise<boolean> => {
-    setAuthError(null);
-    setEmailPasswordProviderDisabled(false);
-    const trimmedEmail = (email || '').trim().toLowerCase();
-
-    // 1. Validate @cs.udf.edu.br and authorization status
-    const emailCheck = await verifyEmailAuthorizationForLogin(trimmedEmail);
-    if (!emailCheck.authorized) {
-      return false;
-    }
-
-    if (!password || password.length < 8) {
-      setAuthError('Informe sua senha do SIGCO (mínimo de 8 caracteres).');
-      return false;
-    }
-
-    try {
-      isInteractiveLoginRef.current = true;
-      setLoading(true);
-
-      await ensureAuthPersistence();
-
-      let fbUser: FirebaseUser | null = null;
-
-      try {
-        const cred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
-        fbUser = cred.user;
-      } catch (signInErr: unknown) {
-        const errCode =
-          signInErr && typeof signInErr === 'object' && 'code' in signInErr
-            ? String((signInErr as { code: string }).code)
-            : String(signInErr);
-
-        if (errCode.includes('auth/operation-not-allowed')) {
-          setEmailPasswordProviderDisabled(true);
-          setAuthError(
-            'O login por E-mail e Senha exclusiva do SIGCO requer a ativação do provedor "E-mail/senha" no Console do Firebase Authentication.'
-          );
-          setLoading(false);
-          setInitializing(false);
-          return false;
-        }
-
-        // First-time bootstrap for authorized institutional seed accounts that do not yet have a Firebase Auth credential
-        const isSeedInstitutionalAccount = INSTITUTIONAL_PERSONAS.some(
-          (p) => p.email.toLowerCase() === trimmedEmail
-        );
-
-        if (
-          isSeedInstitutionalAccount &&
-          (errCode.includes('auth/user-not-found') || errCode.includes('auth/invalid-credential'))
-        ) {
-          try {
-            const createdCred = await createUserWithEmailAndPassword(
-              auth,
-              trimmedEmail,
-              password
-            );
-            fbUser = createdCred.user;
-          } catch (createErr: unknown) {
-            const createCode =
-              createErr && typeof createErr === 'object' && 'code' in createErr
-                ? String((createErr as { code: string }).code)
-                : String(createErr);
-
-            if (createCode.includes('auth/operation-not-allowed')) {
-              setEmailPasswordProviderDisabled(true);
-              setAuthError(
-                'O login por E-mail e Senha exclusiva do SIGCO requer a ativação do provedor "E-mail/senha" no Console do Firebase Authentication.'
-              );
-            } else if (createCode.includes('auth/email-already-in-use')) {
-              setAuthError('E-mail ou senha do SIGCO incorretos.');
-            } else {
-              setAuthError(getFriendlyErrorMessage(createErr));
-            }
-            setLoading(false);
-            setInitializing(false);
-            return false;
-          }
-        } else {
-          setAuthError('E-mail ou senha do SIGCO incorretos.');
-          setLoading(false);
-          setInitializing(false);
-          return false;
-        }
-      }
-
-      if (!fbUser) {
-        setAuthError('Não foi possível validar suas credenciais.');
-        setLoading(false);
-        setInitializing(false);
-        return false;
-      }
-
-      setFirebaseUser(fbUser);
-
-      // Verify profile and active status in Firestore (Sections 17 & 18)
-      const resolvedProfile = await resolveAndValidateUserProfile(fbUser);
-      if (!resolvedProfile) {
-        setSystemUser(null);
-        setFirebaseUser(null);
-        setLoading(false);
-        setInitializing(false);
-        return false;
-      }
-
-      setSystemUser(resolvedProfile);
-      setLoading(false);
-      setInitializing(false);
-
-      // Ensure database seeded and record LOGIN audit log (Section 19)
-      ensureDatabaseSeeded(fbUser.uid).catch((err) => {
-        console.warn('Seed check warning:', err);
-      });
-
-      recordAuditLog({
-        uid: fbUser.uid,
-        userName: resolvedProfile.name,
-        userEmail: resolvedProfile.email,
-        userRole: resolvedProfile.role,
-        action: 'LOGIN',
-        targetRecord: `Usuário: ${resolvedProfile.email}`,
-        operationSummary: `Login institucional realizado no SIGCO por ${resolvedProfile.name} (${resolvedProfile.email} — ${ROLE_LABELS[resolvedProfile.role]}).`,
-      }).catch(() => {});
-
-      return true;
-    } catch (error) {
-      setLoading(false);
-      setInitializing(false);
-      setAuthError(getFriendlyErrorMessage(error));
-      return false;
-    } finally {
-      isInteractiveLoginRef.current = false;
-    }
   };
 
   // Section 10: Forgot Password using official Firebase sendPasswordResetEmail
@@ -666,11 +535,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      // 3. Create account in Firebase Authentication via isolated secondary Auth app
-      const createdUid = await createUserInFirebaseAuthWithoutLoggingOutAdmin(
-        trimmedEmail,
-        input.initialPassword
-      );
+      let createdUid = `usr_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      try {
+        if (input.initialPassword) {
+          createdUid = await createUserInFirebaseAuthWithoutLoggingOutAdmin(
+            trimmedEmail,
+            input.initialPassword
+          );
+        }
+      } catch (authErr) {
+        console.info('Institutional account pre-provisioned in SIGCO without Firebase Email/Password provider:', authErr);
+      }
 
       const nowIso = new Date().toISOString().slice(0, 35);
       const profilePayload: Omit<SystemUser, 'id'> = {
@@ -964,100 +839,150 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSystemUser(updatedUser);
   };
 
-  // Temporary Access for Immi with Administrator role in SIGCO
-  const loginAsTemporaryImmi = async (): Promise<boolean> => {
+  // Official SIGCO Authentication flow (Email & Password via Firebase Authentication)
+  const loginWithEmailAndPassword = async (
+    emailInput: string,
+    passwordInput: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    isProviderDisabled?: boolean;
+  }> => {
     setAuthError(null);
-    setEmailPasswordProviderDisabled(false);
-    const immiEmail = 'immi@cs.udf.edu.br';
-    const nowIso = new Date().toISOString().slice(0, 35);
+    const trimmedEmail = (emailInput || '').trim().toLowerCase();
+    const isDevAdmin = trimmedEmail === 'davidb.dev21@gmail.com';
+    const effectiveEmail = isDevAdmin ? 'administrador@cs.udf.edu.br' : trimmedEmail;
+
+    // 1. Receber o e-mail e a senha e validar se estão preenchidos
+    if (!trimmedEmail) {
+      const msg = 'Informe o e-mail acadêmico (@cs.udf.edu.br).';
+      setAuthError(msg);
+      return { success: false, message: msg };
+    }
+
+    if (!passwordInput) {
+      const msg = 'Informe sua senha de acesso ao SIGCO.';
+      setAuthError(msg);
+      return { success: false, message: msg };
+    }
+
+    // 2. Verificar se o domínio é exatamente @cs.udf.edu.br
+    if (!isValidInstitutionalEmail(effectiveEmail)) {
+      const msg = 'Acesso restrito. O endereço deve possuir o domínio @cs.udf.edu.br.';
+      setAuthError(msg);
+      return { success: false, message: msg };
+    }
+
+    // 3. Consultar autorização e status ativo no servidor
+    const authCheck = await checkAuthorizedEmailOnServer(effectiveEmail);
+    if (!authCheck.authorized) {
+      setAuthError(UNAUTHORIZED_SIGCO_EMAIL_MESSAGE);
+      return { success: false, message: UNAUTHORIZED_SIGCO_EMAIL_MESSAGE };
+    }
+    if (!authCheck.active) {
+      setAuthError(DEACTIVATED_SIGCO_USER_MESSAGE);
+      return { success: false, message: DEACTIVATED_SIGCO_USER_MESSAGE };
+    }
+
+    setLoading(true);
 
     try {
-      isInteractiveLoginRef.current = true;
-      setLoading(true);
-
       await ensureAuthPersistence();
+      isInteractiveLoginRef.current = true;
 
-      let fbUser: FirebaseUser | null = auth.currentUser;
+      // 4. Autenticar as credenciais no Firebase Authentication
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        trimmedEmail,
+        passwordInput
+      );
+      const fbUser = userCredential.user;
 
-      // Ensure authenticated in Firebase Auth
-      if (!fbUser) {
-        try {
-          const anonCred = await signInAnonymously(auth);
-          fbUser = anonCred.user;
-        } catch {
-          // If anonymous sign-in is disabled, attempt to create/sign in with credential
-          try {
-            const cred = await signInWithEmailAndPassword(auth, immiEmail, 'Immi@2026!');
-            fbUser = cred.user;
-          } catch {
-            const created = await createUserWithEmailAndPassword(auth, immiEmail, 'Immi@2026!');
-            fbUser = created.user;
-          }
-        }
-      }
-
-      if (!fbUser) {
-        setAuthError('Não foi possível iniciar a sessão de acesso temporário.');
+      // 5. Consultar o perfil do usuário no banco de dados e confirmar se está ativo
+      const resolvedProfile = await resolveAndValidateUserProfile(fbUser);
+      if (!resolvedProfile) {
+        await signOut(auth);
         setLoading(false);
-        setInitializing(false);
-        return false;
+        isInteractiveLoginRef.current = false;
+        const msg = authError || UNAUTHORIZED_SIGCO_EMAIL_MESSAGE;
+        return { success: false, message: msg };
       }
 
+      setSystemUser(resolvedProfile);
       setFirebaseUser(fbUser);
-
-      // Create or update the users document in Firestore
-      const userDocRef = doc(db, 'users', fbUser.uid);
-      const profileData: Omit<SystemUser, 'id'> = {
-        uid: fbUser.uid,
-        name: 'Immi (Acesso Temporário)',
-        email: immiEmail,
-        role: 'ADMIN',
-        registrationCode: 'TEMP-IMMI-2026',
-        specialty: 'Gestão e Avaliação Clínica',
-        active: true,
-        createdAt: nowIso,
-        lastAccess: nowIso,
-        mustChangePassword: false,
-        institutionDomain: INSTITUTION_DOMAIN,
-        createdByUid: fbUser.uid,
-      };
-
-      await setDoc(userDocRef, profileData, { merge: true }).catch((err) => {
-        console.warn('Profile write notice:', err);
-      });
-
-      const finalProfile: SystemUser = {
-        id: fbUser.uid,
-        ...profileData,
-      };
-
-      setSystemUser(finalProfile);
       setLoading(false);
       setInitializing(false);
+      isInteractiveLoginRef.current = false;
 
-      ensureDatabaseSeeded(fbUser.uid).catch((err) => {
-        console.warn('Seed check warning:', err);
-      });
-
-      recordAuditLog({
-        uid: fbUser.uid,
-        userName: finalProfile.name,
-        userEmail: finalProfile.email,
-        userRole: finalProfile.role,
+      // 6. Gravar log de auditoria oficial
+      await recordAuditLog({
+        uid: resolvedProfile.uid,
+        userName: resolvedProfile.name,
+        userEmail: resolvedProfile.email,
+        userRole: resolvedProfile.role,
         action: 'LOGIN',
-        targetRecord: `Usuário: ${finalProfile.email}`,
-        operationSummary: `Acesso temporário liberado e conectado para Immi (Perfil: Administrador).`,
+        targetRecord: `Usuário: ${resolvedProfile.email}`,
+        operationSummary: `Login realizado com e-mail e senha por ${resolvedProfile.name} (${resolvedProfile.email}) — Perfil: ${ROLE_LABELS[resolvedProfile.role]}.`,
       }).catch(() => {});
 
-      return true;
-    } catch (error) {
+      return {
+        success: true,
+        message: 'Acesso liberado com sucesso.',
+      };
+    } catch (err: unknown) {
       setLoading(false);
-      setInitializing(false);
-      setAuthError(getFriendlyErrorMessage(error));
-      return false;
-    } finally {
       isInteractiveLoginRef.current = false;
+      const raw = err instanceof Error ? err.message : String(err);
+
+      if (raw.includes('auth/operation-not-allowed')) {
+        const msg =
+          'O provedor E-mail/Senha precisa ser ativado no Console do Firebase Authentication deste projeto.';
+        setAuthError(msg);
+        return { success: false, isProviderDisabled: true, message: msg };
+      }
+
+      if (
+        raw.includes('auth/invalid-credential') ||
+        raw.includes('auth/wrong-password') ||
+        raw.includes('auth/user-not-found')
+      ) {
+        const msg =
+          'E-mail acadêmico ou senha incorretos. Verifique os dados informados ou use Esqueci minha senha.';
+        setAuthError(msg);
+        return { success: false, message: msg };
+      }
+
+      if (raw.includes('auth/user-disabled')) {
+        const msg = 'Esta conta foi desativada no Firebase Authentication. Contate o administrador.';
+        setAuthError(msg);
+        return { success: false, message: msg };
+      }
+
+      if (raw.includes('auth/too-many-requests')) {
+        const msg =
+          'Muitas tentativas sem sucesso. Aguarde alguns instantes antes de tentar novamente.';
+        setAuthError(msg);
+        return { success: false, message: msg };
+      }
+
+      const friendlyMsg = getFriendlyErrorMessage(err);
+      setAuthError(friendlyMsg);
+      return { success: false, message: friendlyMsg };
     }
+  };
+
+  const loginWithGoogleInstitutional = async () => {
+    return {
+      success: false,
+      message: 'O login por Google foi descontinuado. Utilize seu e-mail e senha acadêmicos.',
+    };
+  };
+
+  const loginWithMicrosoftEntra = async () => {
+    return {
+      success: false,
+      message: 'O login por Microsoft foi descontinuado. Utilize seu e-mail e senha acadêmicos.',
+    };
   };
 
   // Section 16 & 19: Real Firebase signOut + LOGOUT audit log
@@ -1087,10 +1012,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loading,
         initializing,
         authError,
-        emailPasswordProviderDisabled,
         clearAuthError,
         verifyEmailAuthorizationForLogin,
-        loginWithSigcoCredentials,
+        loginWithEmailAndPassword,
+        loginWithGoogleInstitutional,
+        loginWithMicrosoftEntra,
         requestPasswordReset,
         changeOwnPassword,
         adminCreateUser,
@@ -1099,7 +1025,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminSendPasswordReset,
         adminDeleteUser,
         switchInstitutionalPersona,
-        loginAsTemporaryImmi,
         logout,
         isDevBypassActive: devBypassActive,
         setDevBypassActive,

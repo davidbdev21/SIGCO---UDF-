@@ -44,7 +44,7 @@ const TOUR_STEPS: TourStep[] = [
     tab: 'dashboard',
     title: 'Visão Geral no Dashboard',
     description:
-      'O Dashboard apresenta uma visão limpa da clínica: total de pacientes, consultas de hoje, lista de espera, pacientes em tratamento, agenda do dia e atividades recentes.',
+      'O Dashboard apresenta uma visão limpa da clínica: total de pacientes, consultas de hoje, triagens clínicas, pacientes em tratamento, agenda do dia e atividades recentes.',
     highlightLabel: 'Destaque: Indicadores Principais e Agenda de Hoje',
     icon: LayoutDashboard,
   },

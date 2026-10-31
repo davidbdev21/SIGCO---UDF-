@@ -11,6 +11,7 @@ import {
   sendPasswordResetEmail,
   setPersistence,
   signInAnonymously,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -33,6 +34,7 @@ export {
   reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInAnonymously,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -163,7 +165,7 @@ export function getFriendlyErrorMessage(error: unknown): string {
     return 'Senha atual ou credencial inválida. Verifique os dados informados.';
   }
   if (raw.includes('auth/operation-not-allowed')) {
-    return 'O provedor E-mail/Senha precisa ser ativado no Console do Firebase Authentication deste projeto.';
+    return 'Este método de autenticação não está habilitado nas configurações do Firebase.';
   }
   try {
     const parsed = JSON.parse(raw);

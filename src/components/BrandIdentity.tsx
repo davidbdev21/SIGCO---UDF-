@@ -5,6 +5,7 @@ import { PATIENT_STATUS_LABELS, PRIORITY_LABELS, WAITING_LIST_STATUS_LABELS } fr
 interface UdfLogoProps {
   variant?: 'default' | 'light';
   size?: 'sm' | 'md' | 'lg';
+  showSubtitle?: boolean;
   className?: string;
 }
 
@@ -15,16 +16,17 @@ interface UdfLogoProps {
 export const UdfOfficialLogo: React.FC<UdfLogoProps> = ({
   variant = 'default',
   size = 'md',
+  showSubtitle = false,
   className = '',
 }) => {
-  const starSize = size === 'sm' ? 28 : size === 'lg' ? 46 : 36;
+  const starSize = size === 'sm' ? 28 : size === 'lg' ? 48 : 36;
   const textSizeClass =
     size === 'sm' ? 'text-xl' : size === 'lg' ? 'text-3xl' : 'text-2xl';
   const textColor = variant === 'light' ? '#FFFFFF' : '#003366';
 
   return (
     <div
-      className={`inline-flex items-center gap-2.5 select-none shrink-0 ${className}`}
+      className={`inline-flex items-center gap-3 select-none shrink-0 ${className}`}
       aria-label="Logo Oficial UDF"
     >
       <svg
@@ -44,12 +46,22 @@ export const UdfOfficialLogo: React.FC<UdfLogoProps> = ({
           strokeLinejoin="round"
         />
       </svg>
-      <span
-        style={{ color: textColor }}
-        className={`font-bold tracking-tight leading-none ${textSizeClass}`}
-      >
-        UDF
-      </span>
+      <div className="leading-tight">
+        <span
+          style={{ color: textColor }}
+          className={`font-bold tracking-tight leading-none block ${textSizeClass}`}
+        >
+          UDF
+        </span>
+        {showSubtitle && (
+          <span
+            style={{ color: variant === 'light' ? '#E6F6FF' : '#003366' }}
+            className="text-xs sm:text-sm font-medium tracking-normal block mt-0.5"
+          >
+            Centro Universitário
+          </span>
+        )}
+      </div>
     </div>
   );
 };

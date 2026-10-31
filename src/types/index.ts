@@ -349,7 +349,6 @@ export interface AuditLog {
 export type NavigationTab =
   | 'dashboard'
   | 'patients'
-  | 'waiting_list'
   | 'screening'
   | 'schedule'
   | 'medical_records'
@@ -363,4 +362,23 @@ export type NavigationTab =
   | 'settings'
   | 'audit'
   | 'help';
+
+export interface RolePermissionsConfig {
+  allowedTabs: NavigationTab[];
+  canConsultRecords: boolean;
+  canCreateRecords: boolean;
+  canEditRecords: boolean;
+  canDeleteRecords: boolean;
+  canExecuteAdminActions: boolean;
+}
+
+export type SystemPermissionsMatrix = Record<UserRole, RolePermissionsConfig>;
+
+export interface BootstrapStatusResponse {
+  initialized: boolean;
+  hasAdmin: boolean;
+  adminCount: number;
+  firstAdminEmail?: string | null;
+  message?: string;
+}
 

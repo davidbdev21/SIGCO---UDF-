@@ -7,10 +7,12 @@ import {
   ChevronUp,
   CheckCircle2,
   BookOpen,
+  ShieldCheck,
 } from 'lucide-react';
 import { NavigationTab } from '../types';
 import { canUserAccessTab } from '../utils/validation';
 import { useAuth } from '../auth/AuthContext';
+import { InstitutionalSetupWizardPage } from './InstitutionalSetupWizardPage';
 
 interface HelpCenterPageProps {
   onNavigate: (tab: NavigationTab) => void;
@@ -49,7 +51,7 @@ const GUIDE_STEPS: GuideStep[] = [
     bullets: [
       'Pacientes: total de pacientes ativos vinculados ao seu perfil.',
       'Consultas de hoje: atendimentos programados para o dia atual.',
-      'Lista de espera: pacientes aguardando triagem ou vaga clínica.',
+      'Triagens: registro e status das avaliações odontológicas iniciais.',
       'Em tratamento: pacientes com plano clínico em andamento.',
       'Atividades: resumo da agenda de hoje e histórico recente de operações.',
     ],
@@ -70,24 +72,10 @@ const GUIDE_STEPS: GuideStep[] = [
     targetTab: 'patients',
     actionButtonLabel: 'Novo paciente / Ver Pacientes',
   },
+
   {
     stepNumber: 4,
-    title: 'ETAPA 4 — LISTA DE ESPERA',
-    category: 'Atendimento',
-    summary: 'Use a Lista de Espera para acompanhar pacientes aguardando atendimento.',
-    bullets: [
-      'Adicionar paciente na fila por especialidade.',
-      'Visualizar posição exata e data de entrada na fila.',
-      'Definir prioridade clínica (Baixa, Média, Alta ou Urgente).',
-      'Encaminhar diretamente para triagem odontológica.',
-      'Acompanhar status (Aguardando triagem, Aguardando vaga, Em atendimento).',
-    ],
-    targetTab: 'waiting_list',
-    actionButtonLabel: 'Abrir Lista de Espera',
-  },
-  {
-    stepNumber: 5,
-    title: 'ETAPA 5 — TRIAGEM',
+    title: 'ETAPA 4 — TRIAGEM',
     category: 'Atendimento',
     summary:
       'A triagem é responsável pela avaliação odontológica inicial. Nenhum paciente segue para tratamento sem passar pela triagem (RN02).',
@@ -101,8 +89,8 @@ const GUIDE_STEPS: GuideStep[] = [
     actionButtonLabel: 'Acessar Triagem',
   },
   {
-    stepNumber: 6,
-    title: 'ETAPA 6 — AGENDA',
+    stepNumber: 5,
+    title: 'ETAPA 5 — AGENDA',
     category: 'Principal',
     summary:
       'A Agenda mostra os horários disponíveis dos professores e as consultas agendadas. O sistema impede conflitos de horário automaticamente.',
@@ -115,8 +103,8 @@ const GUIDE_STEPS: GuideStep[] = [
     actionButtonLabel: 'Abrir Agenda',
   },
   {
-    stepNumber: 7,
-    title: 'ETAPA 7 — PRONTUÁRIO',
+    stepNumber: 6,
+    title: 'ETAPA 6 — PRONTUÁRIO',
     category: 'Atendimento',
     summary:
       'O prontuário reúne as informações clínicas autorizadas, com proteção de sigilo (RN03/RN06) e validação pelo professor supervisor.',
@@ -129,8 +117,8 @@ const GUIDE_STEPS: GuideStep[] = [
     actionButtonLabel: 'Abrir Prontuários',
   },
   {
-    stepNumber: 8,
-    title: 'ETAPA 8 — ODONTOGRAMA',
+    stepNumber: 7,
+    title: 'ETAPA 7 — ODONTOGRAMA',
     category: 'Atendimento',
     summary:
       'Use o odontograma interativo (padrão FDI) para registrar visualmente situações relacionadas aos dentes.',
@@ -143,8 +131,8 @@ const GUIDE_STEPS: GuideStep[] = [
     actionButtonLabel: 'Abrir Odontograma',
   },
   {
-    stepNumber: 9,
-    title: 'ETAPA 9 — ENCAMINHAMENTOS',
+    stepNumber: 8,
+    title: 'ETAPA 8 — ENCAMINHAMENTOS',
     category: 'Atendimento',
     summary:
       'Utilize encaminhamentos quando o paciente precisar de atendimento em outra especialidade odontológica.',
@@ -157,8 +145,8 @@ const GUIDE_STEPS: GuideStep[] = [
     actionButtonLabel: 'Ver Encaminhamentos',
   },
   {
-    stepNumber: 10,
-    title: 'ETAPA 10 — ALUNOS',
+    stepNumber: 9,
+    title: 'ETAPA 9 — ALUNOS',
     category: 'Gestão',
     summary: 'Área destinada ao gerenciamento dos alunos de odontologia da instituição.',
     bullets: [
@@ -261,8 +249,13 @@ export const HelpCenterPage: React.FC<HelpCenterPageProps> = ({ onNavigate, onSt
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   if (!systemUser) return null;
+
+  if (wizardOpen) {
+    return <InstitutionalSetupWizardPage onBackToLogin={() => setWizardOpen(false)} />;
+  }
 
   const filteredSteps = GUIDE_STEPS.filter((step) => {
     const matchesCategory = categoryFilter === 'ALL' || step.category === categoryFilter;
@@ -292,15 +285,26 @@ export const HelpCenterPage: React.FC<HelpCenterPageProps> = ({ onNavigate, onSt
           </p>
         </div>
 
-        {/* Single Primary Action: Iniciar tour novamente (Section 13) */}
-        <button
-          type="button"
-          onClick={onStartTour}
-          className="px-4 py-2.5 bg-[#00AEEF] hover:bg-[#007BFF] text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap self-start md:self-center"
-        >
-          <PlayCircle className="w-4 h-4" />
-          <span>Iniciar tour novamente</span>
-        </button>
+        {/* Action Buttons: Assistente E-mail/Senha e Tour */}
+        <div className="flex items-center gap-2.5 flex-wrap self-start md:self-center">
+          <button
+            type="button"
+            onClick={() => setWizardOpen(true)}
+            className="px-3.5 py-2.5 bg-[#003B71] hover:bg-[#002D57] text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap"
+            title="Abrir o assistente interativo de configuração de E-mail e Senha no Firebase Authentication"
+          >
+            <BookOpen className="w-4 h-4 text-[#00AEEF]" />
+            <span>Configurar E-mail/Senha</span>
+          </button>
+          <button
+            type="button"
+            onClick={onStartTour}
+            className="px-3.5 py-2.5 bg-[#00AEEF] hover:bg-[#007BFF] text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap"
+          >
+            <PlayCircle className="w-4 h-4" />
+            <span>Iniciar tour novamente</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter & Search Bar */}
@@ -411,6 +415,20 @@ export const HelpCenterPage: React.FC<HelpCenterPageProps> = ({ onNavigate, onSt
                       </li>
                     ))}
                   </ul>
+
+                  {step.stepNumber === 1 && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setWizardOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-[#003366] hover:bg-[#002244] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5 text-[#00AEEF]" />
+                        <span>Abrir guia de configuração E-mail/Senha no Firebase (8 etapas)</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-[#00AEEF]" />
+                      </button>
+                    </div>
+                  )}
 
                   {canOpenTab && step.targetTab && (
                     <div className="pt-1">

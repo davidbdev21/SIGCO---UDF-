@@ -20,6 +20,40 @@ export const UNAUTHORIZED_SIGCO_EMAIL_MESSAGE =
 export const DEACTIVATED_SIGCO_USER_MESSAGE =
   'Seu acesso ao SIGCO está desativado. Entre em contato com o administrador.';
 
+export interface GoogleVerifyResponse {
+  authorized: boolean;
+  validDomain?: boolean;
+  emailVerified?: boolean;
+  active?: boolean;
+  email?: string;
+  name?: string;
+  uid?: string;
+  message?: string;
+}
+
+export async function verifyGoogleTokenOnServer(
+  idToken: string
+): Promise<GoogleVerifyResponse> {
+  try {
+    const response = await fetch('/api/auth/google-verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+    const data = await response.json();
+    return data;
+  } catch {
+    return {
+      authorized: false,
+      message: 'Falha de comunicação com o servidor de validação institucional.',
+    };
+  }
+}
+
+// Deprecated alias for backwards compatibility
+export const verifyMicrosoftTokenOnServer = verifyGoogleTokenOnServer;
+export type MicrosoftVerifyResponse = GoogleVerifyResponse;
+
 export async function checkAuthorizedEmailOnServer(
   email: string
 ): Promise<AuthorizedUserCheckResponse> {
@@ -235,5 +269,277 @@ export async function validateScheduleOnServer(params: {
       };
     }
     return { valid: true, message: 'OK' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AUTOMATED USER ADMINISTRATION & BOOTSTRAP API FUNCTIONS
+// ---------------------------------------------------------------------------
+
+export interface BootstrapStatusResult {
+  initialized: boolean;
+  hasAdmin: boolean;
+  adminCount: number;
+  firstAdminEmail?: string | null;
+  message?: string;
+}
+
+export async function getBootstrapStatusOnServer(): Promise<BootstrapStatusResult> {
+  try {
+    const res = await fetch('/api/auth/bootstrap-status');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch bootstrap status from backend:', err);
+  }
+  return { initialized: true, hasAdmin: true, adminCount: 1 };
+}
+
+export async function bootstrapFirstAdminOnServer(params: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{
+  success: boolean;
+  uid?: string;
+  email?: string;
+  name?: string;
+  role?: UserRole;
+  idToken?: string;
+  isProviderDisabled?: boolean;
+  message: string;
+}> {
+  try {
+    const res = await fetch('/api/auth/bootstrap-first-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      uid: data.uid,
+      email: data.email,
+      name: data.name,
+      role: data.role,
+      idToken: data.idToken,
+      isProviderDisabled: data.isProviderDisabled,
+      message: data.message || (res.ok ? 'Administrador criado com sucesso.' : 'Falha na inicialização.'),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Falha na comunicação com o servidor.',
+    };
+  }
+}
+
+export async function adminCreateUserOnServer(
+  params: {
+    name: string;
+    email: string;
+    role: UserRole;
+    active: boolean;
+    initialPassword: string;
+    registrationCode?: string;
+    specialty?: string;
+    mustChangePassword?: boolean;
+  },
+  authToken?: string
+): Promise<{
+  success: boolean;
+  uid?: string;
+  email?: string;
+  role?: UserRole;
+  active?: boolean;
+  registrationCode?: string;
+  specialty?: string;
+  mustChangePassword?: boolean;
+  isProviderDisabled?: boolean;
+  message: string;
+}> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      uid: data.uid,
+      email: data.email,
+      role: data.role,
+      active: data.active,
+      registrationCode: data.registrationCode,
+      specialty: data.specialty,
+      mustChangePassword: data.mustChangePassword,
+      isProviderDisabled: data.isProviderDisabled,
+      message: data.message || (res.ok ? 'Usuário cadastrado com sucesso.' : 'Falha no cadastro.'),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Erro ao cadastrar usuário no servidor.',
+    };
+  }
+}
+
+export async function adminUpdateUserOnServer(
+  params: {
+    targetEmail: string;
+    name?: string;
+    role?: UserRole;
+    active?: boolean;
+    registrationCode?: string;
+    specialty?: string;
+  },
+  authToken?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch('/api/admin/update-user', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      message: data.message || 'Dados atualizados no servidor.',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Erro ao atualizar usuário.',
+    };
+  }
+}
+
+export async function adminToggleUserStatusOnServer(
+  targetEmail: string,
+  active: boolean,
+  authToken?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch('/api/admin/toggle-user-status', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ targetEmail, active }),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      message: data.message || 'Situação do usuário alterada.',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Erro ao alterar situação.',
+    };
+  }
+}
+
+export async function adminSendPasswordResetOnServer(
+  email: string,
+  authToken?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch('/api/admin/send-password-reset', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      message: data.message || 'E-mail de redefinição enviado.',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Erro ao enviar e-mail de redefinição.',
+    };
+  }
+}
+
+export async function requestPublicPasswordResetOnServer(
+  email: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await fetch('/api/auth/request-password-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    return {
+      success: true,
+      message: data.message || 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada.',
+    };
+  } catch (err) {
+    return {
+      success: true,
+      message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada.',
+    };
+  }
+}
+
+export async function getPermissionsMatrixOnServer(): Promise<{
+  success: boolean;
+  matrix: any;
+}> {
+  try {
+    const res = await fetch('/api/admin/permissions-matrix');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Failed to load permissions matrix from backend:', err);
+  }
+  return { success: false, matrix: null };
+}
+
+export async function updatePermissionsMatrixOnServer(
+  matrix: any,
+  authToken?: string
+): Promise<{ success: boolean; matrix?: any; message: string }> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch('/api/admin/permissions-matrix', {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ matrix }),
+    });
+    const data = await res.json();
+    return {
+      success: res.ok && data.success,
+      matrix: data.matrix,
+      message: data.message || 'Matriz de permissões atualizada com sucesso.',
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : 'Erro ao salvar matriz de permissões.',
+    };
   }
 }

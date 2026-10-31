@@ -1,4 +1,4 @@
-import { NavigationTab, Patient, UserRole, WaitingListStatus } from '../types';
+import { NavigationTab, Patient, RolePermissionsConfig, SystemPermissionsMatrix, UserRole, WaitingListStatus } from '../types';
 
 // Verbatim patterns and limits synced with firebase-blueprint.json & firestore.rules
 export const INSTITUTIONAL_EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@cs\.udf\.edu\.br$/;
@@ -40,7 +40,6 @@ export const ROLE_ALLOWED_TABS: Record<UserRole, NavigationTab[]> = {
   ADMIN: [
     'dashboard',
     'patients',
-    'waiting_list',
     'screening',
     'schedule',
     'medical_records',
@@ -58,7 +57,6 @@ export const ROLE_ALLOWED_TABS: Record<UserRole, NavigationTab[]> = {
   RECEPCAO: [
     'dashboard',
     'patients',
-    'waiting_list',
     'schedule',
     'settings',
     'help',
@@ -66,7 +64,6 @@ export const ROLE_ALLOWED_TABS: Record<UserRole, NavigationTab[]> = {
   TRIAGEM: [
     'dashboard',
     'patients',
-    'waiting_list',
     'screening',
     'medical_records',
     'odontogram',
@@ -77,7 +74,6 @@ export const ROLE_ALLOWED_TABS: Record<UserRole, NavigationTab[]> = {
   PROFESSOR: [
     'dashboard',
     'patients',
-    'waiting_list',
     'schedule',
     'medical_records',
     'odontogram',
@@ -101,8 +97,83 @@ export const ROLE_ALLOWED_TABS: Record<UserRole, NavigationTab[]> = {
   ],
 };
 
-export function canUserAccessTab(role: UserRole, tab: NavigationTab): boolean {
+// Full Default Configurable Permissions Matrix (Section 3 of User Specification)
+export const DEFAULT_PERMISSIONS_MATRIX: SystemPermissionsMatrix = {
+  ADMIN: {
+    allowedTabs: [...ROLE_ALLOWED_TABS.ADMIN],
+    canConsultRecords: true,
+    canCreateRecords: true,
+    canEditRecords: true,
+    canDeleteRecords: true,
+    canExecuteAdminActions: true,
+  },
+  RECEPCAO: {
+    allowedTabs: [...ROLE_ALLOWED_TABS.RECEPCAO],
+    canConsultRecords: true,
+    canCreateRecords: true,
+    canEditRecords: true,
+    canDeleteRecords: false,
+    canExecuteAdminActions: false,
+  },
+  TRIAGEM: {
+    allowedTabs: [...ROLE_ALLOWED_TABS.TRIAGEM],
+    canConsultRecords: true,
+    canCreateRecords: true,
+    canEditRecords: true,
+    canDeleteRecords: false,
+    canExecuteAdminActions: false,
+  },
+  PROFESSOR: {
+    allowedTabs: [...ROLE_ALLOWED_TABS.PROFESSOR],
+    canConsultRecords: true,
+    canCreateRecords: true,
+    canEditRecords: true,
+    canDeleteRecords: false,
+    canExecuteAdminActions: false,
+  },
+  ALUNO: {
+    allowedTabs: [...ROLE_ALLOWED_TABS.ALUNO],
+    canConsultRecords: true,
+    canCreateRecords: true,
+    canEditRecords: true,
+    canDeleteRecords: false,
+    canExecuteAdminActions: false,
+  },
+};
+
+export function canUserAccessTab(
+  role: UserRole,
+  tab: NavigationTab,
+  customMatrix?: SystemPermissionsMatrix | null
+): boolean {
+  if (customMatrix && customMatrix[role]) {
+    return customMatrix[role].allowedTabs.includes(tab);
+  }
   return ROLE_ALLOWED_TABS[role]?.includes(tab) ?? false;
+}
+
+export function canUserPerformAction(
+  role: UserRole,
+  action: 'consult' | 'create' | 'edit' | 'delete' | 'admin',
+  customMatrix?: SystemPermissionsMatrix | null
+): boolean {
+  if (role === 'ADMIN') return true;
+  const config = (customMatrix && customMatrix[role]) || DEFAULT_PERMISSIONS_MATRIX[role];
+  if (!config) return false;
+  switch (action) {
+    case 'consult':
+      return config.canConsultRecords;
+    case 'create':
+      return config.canCreateRecords;
+    case 'edit':
+      return config.canEditRecords;
+    case 'delete':
+      return config.canDeleteRecords;
+    case 'admin':
+      return config.canExecuteAdminActions;
+    default:
+      return false;
+  }
 }
 
 // RN03 & RN06: Student can ONLY view patients and clinical records under their responsibility

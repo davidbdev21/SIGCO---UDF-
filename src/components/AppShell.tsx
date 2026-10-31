@@ -31,7 +31,6 @@ import { NavigationTab } from '../types';
 import { useAuth, validateSigcoPasswordStrength } from '../auth/AuthContext';
 import { canUserAccessTab, ROLE_LABELS } from '../utils/validation';
 import { INSTITUTIONAL_PERSONAS } from '../services/seedData';
-import { useClinicData } from '../hooks/useClinicData';
 import { UdfOfficialLogo } from './BrandIdentity';
 
 interface AppShellProps {
@@ -65,8 +64,7 @@ const MENU_GROUPS: MenuGroupConfig[] = [
   {
     groupTitle: 'Atendimento',
     items: [
-      { id: 'waiting_list', label: 'Lista de Espera', icon: Clock },
-      { id: 'screening', label: 'Triagem', icon: Stethoscope },
+        { id: 'screening', label: 'Triagem', icon: Stethoscope },
       { id: 'medical_records', label: 'Prontuários', icon: FileText },
       { id: 'odontogram', label: 'Odontograma', icon: Smile },
       { id: 'referrals', label: 'Encaminhamentos', icon: ArrowLeftRight },
@@ -110,7 +108,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     isDevBypassActive,
     setDevBypassActive,
   } = useAuth();
-  const { waitingList } = useClinicData();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -147,9 +144,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   const activeMenuItem = ALL_MENU_ITEMS.find((m) => m.id === activeTab) || ALL_MENU_ITEMS[0];
 
-  const pendingWaitingCount = waitingList.filter(
-    (w) => w.status === 'AGUARDANDO_TRIAGEM' || w.status === 'AGUARDANDO_VAGA'
-  ).length;
+
 
   return (
     <div className="min-h-screen bg-[#F1F5F9] flex flex-col lg:flex-row">
@@ -242,15 +237,6 @@ export const AppShell: React.FC<AppShellProps> = ({
                           />
                           <span className="truncate">{item.label}</span>
                         </span>
-                        {item.id === 'waiting_list' && pendingWaitingCount > 0 && (
-                          <span
-                            className={`tabular-nums text-[11px] font-semibold ${
-                              isActive ? 'text-white' : 'text-[#00AEEF]'
-                            }`}
-                          >
-                            {pendingWaitingCount}
-                          </span>
-                        )}
                       </button>
                     );
                   })}

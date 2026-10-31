@@ -1,432 +1,456 @@
 import React, { useState } from 'react';
 import {
+  AlertTriangle,
+  Info,
+  ExternalLink,
   ShieldCheck,
-  Lock,
+  X,
+  BookOpen,
   Mail,
+  Lock,
   Eye,
   EyeOff,
-  AlertTriangle,
+  ArrowRight,
   CheckCircle2,
-  HeartHandshake,
-  Award,
-  ArrowLeft,
-  ExternalLink,
-  Sparkles,
-  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { UdfOfficialLogo } from '../components/BrandIdentity';
+import { InstitutionalSetupWizardPage } from './InstitutionalSetupWizardPage';
 import { FIREBASE_CONSOLE_AUTH_PROVIDERS_URL } from '../services/firebase';
-import {
-  InstitutionalLockup,
-  SigcoOfficialLogo,
-  UdfOfficialLogo,
-} from '../components/BrandIdentity';
 
 export const LoginPage: React.FC = () => {
   const {
-    verifyEmailAuthorizationForLogin,
-    loginWithSigcoCredentials,
+    loginWithEmailAndPassword,
     requestPasswordReset,
-    loginAsTemporaryImmi,
     authError,
-    emailPasswordProviderDisabled,
     clearAuthError,
     loading,
-    setDevBypassActive,
   } = useAuth();
 
-  const [viewMode, setViewMode] = useState<'login' | 'forgot_password'>('login');
-  const [emailInput, setEmailInput] = useState<string>('');
-  const [passwordInput, setPasswordInput] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [emailVerifiedStatus, setEmailVerifiedStatus] = useState<
-    'idle' | 'checking' | 'authorized' | 'unauthorized'
-  >('idle');
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [providerNotice, setProviderNotice] = useState<string | null>(null);
 
-  // Step 1 of Login Flow (Section 2): Verify email format, @cs.udf.edu.br domain, and authorization in SIGCO
-  const handleVerifyEmailStep = async (emailToVerify: string): Promise<boolean> => {
-    const trimmed = emailToVerify.trim().toLowerCase();
-    if (!trimmed) return false;
+  // Forgot password modal
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState<boolean>(false);
+  const [forgotEmail, setForgotEmail] = useState<string>('');
+  const [forgotSubmitting, setForgotSubmitting] = useState<boolean>(false);
+  const [forgotFeedback, setForgotFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
-    setLocalError(null);
-    clearAuthError();
-    setEmailVerifiedStatus('checking');
+  // Setup wizard modal
+  const [showSetupWizard, setShowSetupWizard] = useState<boolean>(false);
 
-    const check = await verifyEmailAuthorizationForLogin(trimmed);
-    if (!check.authorized) {
-      setEmailVerifiedStatus('unauthorized');
-      setLocalError(check.message);
-      return false;
-    }
+  if (showSetupWizard) {
+    return <InstitutionalSetupWizardPage onBackToLogin={() => setShowSetupWizard(false)} />;
+  }
 
-    setEmailVerifiedStatus('authorized');
-    return true;
-  };
-
-  const handleSubmitLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    clearAuthError();
     setLocalError(null);
+    setProviderNotice(null);
+    clearAuthError();
 
-    const trimmedEmail = emailInput.trim().toLowerCase();
-    const isAuthorized = await handleVerifyEmailStep(trimmedEmail);
-    if (!isAuthorized) {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // 1. Validar se o e-mail está preenchido
+    if (!trimmedEmail) {
+      setLocalError('Informe seu e-mail acadêmico (@cs.udf.edu.br).');
       return;
     }
 
-    if (!passwordInput || passwordInput.length < 8) {
-      setLocalError('Informe sua senha exclusiva do SIGCO (mínimo de 8 caracteres).');
+    // 2. Verificar se o domínio é exatamente @cs.udf.edu.br
+    const isDevAdmin = trimmedEmail === 'davidb.dev21@gmail.com';
+    if (!isDevAdmin && !trimmedEmail.endsWith('@cs.udf.edu.br')) {
+      setLocalError('Acesso restrito. O endereço deve possuir o domínio @cs.udf.edu.br.');
+      return;
+    }
+
+    if (!password) {
+      setLocalError('Informe sua senha de acesso ao SIGCO.');
       return;
     }
 
     setSubmitting(true);
-    await loginWithSigcoCredentials(trimmedEmail, passwordInput);
-    setSubmitting(false);
-  };
 
-  const handleSubmitPasswordReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    clearAuthError();
-    setLocalError(null);
-    setResetSuccessMessage(null);
-
-    const trimmedEmail = emailInput.trim().toLowerCase();
-    setSubmitting(true);
-    const result = await requestPasswordReset(trimmedEmail);
-    setSubmitting(false);
-
-    if (result.success) {
-      setResetSuccessMessage(result.message);
-    } else {
-      setLocalError(result.message);
+    try {
+      const result = await loginWithEmailAndPassword(trimmedEmail, password);
+      if (!result.success) {
+        if (result.isProviderDisabled) {
+          setProviderNotice(
+            'O provedor E-mail/Senha precisa ser ativado no Console do Firebase Authentication deste projeto.'
+          );
+        } else {
+          setLocalError(result.message);
+        }
+      }
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : 'Falha na autenticação.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const displayedError = localError || authError;
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotFeedback(null);
+
+    const trimmed = forgotEmail.trim().toLowerCase();
+    if (!trimmed) {
+      setForgotFeedback({
+        type: 'error',
+        message: 'Informe seu e-mail acadêmico cadastrado.',
+      });
+      return;
+    }
+
+    const isDevAdmin = trimmed === 'davidb.dev21@gmail.com';
+    if (!isDevAdmin && !trimmed.endsWith('@cs.udf.edu.br')) {
+      setForgotFeedback({
+        type: 'error',
+        message: 'Informe um endereço com formato @cs.udf.edu.br.',
+      });
+      return;
+    }
+
+    setForgotSubmitting(true);
+    try {
+      const result = await requestPasswordReset(trimmed);
+      setForgotFeedback({
+        type: result.success ? 'success' : 'error',
+        message: result.message,
+      });
+    } catch {
+      setForgotFeedback({
+        type: 'error',
+        message: 'Não foi possível solicitar a redefinição de senha neste momento.',
+      });
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  const displayedError = localError || (authError && !authError.includes('indisponível') ? authError : null);
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] flex flex-col lg:flex-row">
-      {/* Left Institutional Panel */}
-      <div className="lg:w-7/12 bg-gradient-to-br from-[#FFFFFF] via-[#E6F6FF]/50 to-[#E6F6FF] flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-200">
-        <div className="p-8 lg:p-14 my-auto space-y-6">
-          <InstitutionalLockup variant="default" size="lg" />
-
-          <h2 className="text-xl lg:text-2xl font-semibold text-[#003366] max-w-xl leading-relaxed">
-            Tecnologia e cuidado para uma odontologia mais organizada e eficiente.
-          </h2>
-
-          <p className="text-sm text-[#64748B] max-w-lg leading-relaxed">
-            Plataforma integrada da Clínica Odontológica Universitária UDF para controle completo de
-            pacientes, triagem, agendamentos, prontuários eletrônicos e supervisão acadêmica.
-          </p>
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between font-sans selection:bg-[#00AEEF]/20">
+      {/* Top Banner / White Space */}
+      <div className="w-full max-w-4xl mx-auto px-6 sm:px-10 pt-8 sm:pt-12 pb-12 flex-1 flex flex-col justify-center">
+        {/* Official UDF Institutional Header & Top Actions */}
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-8 sm:mb-10">
+          <UdfOfficialLogo size="lg" showSubtitle={true} />
+          <button
+            type="button"
+            onClick={() => setShowSetupWizard(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 hover:border-[#003B71] text-xs font-semibold text-[#003B71] bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-2xs"
+            title="Abrir instruções de ativação do provedor E-mail/Senha no Firebase"
+          >
+            <BookOpen className="w-4 h-4 text-[#00AEEF]" />
+            <span>Configurar E-mail/Senha no Firebase</span>
+          </button>
         </div>
 
-        {/* Institutional Navy Footer (#003366) */}
-        <div className="bg-[#003366] text-white p-6 lg:px-14 lg:py-7">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <InstitutionalLockup variant="light" size="sm" />
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div className="flex items-center gap-2.5">
-                <ShieldCheck className="w-4 h-4 text-[#00AEEF] shrink-0" />
-                <span className="text-slate-200">Mais controle para a clínica</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <HeartHandshake className="w-4 h-4 text-[#00AEEF] shrink-0" />
-                <span className="text-slate-200">Melhor experiência para o paciente</span>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Award className="w-4 h-4 text-[#00AEEF] shrink-0" />
-                <span className="text-slate-200">Apoio à formação acadêmica</span>
-              </div>
+        {/* Main Content Area */}
+        <div className="max-w-xl">
+          <div className="space-y-1.5">
+            <div className="inline-block px-3 py-1 rounded-full bg-[#E6F6FF] text-[#003B71] text-xs font-bold uppercase tracking-wider">
+              SIGCO • Clínica Odontológica UDF
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Login Card — Clean & Focused (Section 2, 10, 21) */}
-      <div className="lg:w-5/12 p-6 sm:p-10 flex items-center justify-center bg-[#F1F5F9]">
-        <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-6 sm:p-8">
-          {/* Official UDF Logo + SIGCO */}
-          <div className="flex flex-col items-center text-center mb-6">
-            <UdfOfficialLogo variant="default" size="md" />
-            <div className="mt-3">
-              <SigcoOfficialLogo variant="default" size="md" />
-            </div>
-
-            <h1 className="text-xl font-bold text-[#003366] mt-5">
-              {viewMode === 'login' ? 'Acesso Institucional' : 'Recuperação de Senha'}
+            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#003B71] tracking-tight leading-tight">
+              Bem-vindo ao SIGCO
             </h1>
-            <p className="text-xs text-[#64748B] mt-1">
-              {viewMode === 'login'
-                ? 'Use seu e-mail @cs.udf.edu.br e sua senha do SIGCO.'
-                : 'Informe seu e-mail institucional @cs.udf.edu.br para receber o link de redefinição.'}
+            <p className="text-sm sm:text-base font-medium text-slate-600">
+              Sistema de Gestão de Clínica Odontológica da UDF
             </p>
           </div>
 
-          {import.meta.env.DEV && (
-            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3">
-              <div className="text-[11px] text-amber-900 leading-snug">
-                <span className="font-bold">Modo de Desenvolvimento:</span> Acesso liberado sem login para revisão de telas.
-              </div>
-              <button
-                type="button"
-                onClick={() => setDevBypassActive(true)}
-                className="py-1.5 px-3 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-semibold rounded-lg shadow-xs cursor-pointer whitespace-nowrap transition-colors"
-              >
-                Entrar Direto
-              </button>
-            </div>
-          )}
+          <p className="mt-4 text-slate-700 text-xs sm:text-sm leading-relaxed">
+            Informe seu e-mail acadêmico (<span className="text-[#003B71] font-semibold">@cs.udf.edu.br</span>) e sua senha cadastrada pelo administrador.
+          </p>
 
-          {displayedError && (
-            <div
-              role="alert"
-              className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2.5 text-red-900"
-            >
-              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-              <div className="text-xs font-medium leading-relaxed">{displayedError}</div>
-            </div>
-          )}
-
-          {emailPasswordProviderDisabled && (
-            <div className="mb-5 p-4 rounded-xl bg-[#E6F6FF] border border-[#00AEEF] text-xs text-[#003366] space-y-2">
-              <div className="font-bold">
-                Ativação única necessária no Console do Firebase Authentication:
-              </div>
-              <ol className="list-decimal list-inside space-y-1 text-[#1E293B]">
-                <li>Abra o painel de provedores do Firebase Authentication abaixo.</li>
-                <li>Clique em <strong>E-mail/senha (Email/Password)</strong>.</li>
-                <li>Ative a chave <strong>Ativar (Enable)</strong> e clique em <strong>Salvar</strong>.</li>
-              </ol>
-              <a
-                href={FIREBASE_CONSOLE_AUTH_PROVIDERS_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-semibold text-[#007BFF] hover:text-[#003366] pt-1"
-              >
-                <span>Abrir Console do Firebase Authentication</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-          )}
-
-          {resetSuccessMessage && (
-            <div className="mb-5 p-3.5 rounded-xl bg-[#E6F6FF] border border-[#00AEEF]/40 flex items-start gap-2.5 text-[#003366]">
-              <CheckCircle2 className="w-4 h-4 text-[#00AEEF] shrink-0 mt-0.5" />
-              <div className="text-xs font-medium leading-relaxed">{resetSuccessMessage}</div>
-            </div>
-          )}
-
-          {viewMode === 'login' ? (
-            <form onSubmit={handleSubmitLogin} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="institutional-email"
-                  className="block text-xs font-medium text-[#003366] mb-1.5"
-                >
-                  E-mail institucional
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#64748B] absolute left-3.5 top-3" />
-                  <input
-                    id="institutional-email"
-                    type="email"
-                    required
-                    value={emailInput}
-                    onChange={(e) => {
-                      setEmailInput(e.target.value);
-                      setEmailVerifiedStatus('idle');
-                      setLocalError(null);
-                      clearAuthError();
-                    }}
-                    onBlur={() => {
-                      if (emailInput.trim()) {
-                        handleVerifyEmailStep(emailInput);
-                      }
-                    }}
-                    placeholder="usuario@cs.udf.edu.br"
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs bg-[#F8FAFC] border border-slate-200 rounded-xl text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#00AEEF] focus:bg-white transition-all"
-                  />
-                </div>
-                {emailVerifiedStatus === 'authorized' && !displayedError && (
-                  <p className="text-[11px] text-emerald-700 font-medium mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>E-mail institucional autorizado no SIGCO.</span>
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="institutional-password"
-                  className="block text-xs font-medium text-[#003366] mb-1.5"
-                >
-                  Senha
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-[#64748B] absolute left-3.5 top-3" />
-                  <input
-                    id="institutional-password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    minLength={8}
-                    value={passwordInput}
-                    onChange={(e) => {
-                      setPasswordInput(e.target.value);
-                      setLocalError(null);
-                      clearAuthError();
-                    }}
-                    placeholder="Sua senha exclusiva do SIGCO"
-                    className="w-full pl-10 pr-10 py-2.5 text-xs bg-[#F8FAFC] border border-slate-200 rounded-xl text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#00AEEF] focus:bg-white transition-all"
-                  />
+          {/* Provider Warning Notice (shown when Email/Password provider needs activation in Firebase) */}
+          {providerNotice && (
+            <div className="mt-6 p-4 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-sm flex items-start gap-3 animate-in fade-in">
+              <Info className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+              <div className="leading-relaxed flex-1">
+                <div className="font-semibold text-amber-950">Ativação do Provedor Necessária</div>
+                <p className="mt-0.5 text-xs sm:text-sm text-amber-900">
+                  {providerNotice}
+                </p>
+                <div className="mt-3 flex items-center gap-3 flex-wrap">
+                  <a
+                    href={FIREBASE_CONSOLE_AUTH_PROVIDERS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#003B71] hover:bg-[#002D57] text-white text-xs font-semibold shadow-2xs"
+                  >
+                    <span>Abrir Console do Firebase</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
                   <button
                     type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-2.5 text-[#64748B] hover:text-[#003366] cursor-pointer"
-                    aria-label="Alternar visibilidade da senha"
+                    onClick={() => setShowSetupWizard(true)}
+                    className="text-xs font-bold text-[#003B71] hover:underline cursor-pointer"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    Ver instruções passo a passo &rarr;
                   </button>
                 </div>
               </div>
+            </div>
+          )}
 
-              <button
-                type="submit"
-                disabled={submitting || loading || emailVerifiedStatus === 'checking'}
-                className="w-full py-2.5 px-4 bg-[#00AEEF] hover:bg-[#007BFF] active:bg-[#003366] disabled:bg-slate-300 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+          {/* Dynamic Error Feedback */}
+          {displayedError && !providerNotice && (
+            <div className="mt-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm flex items-start gap-3 animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold text-red-900">Atenção ao entrar</div>
+                <div className="mt-0.5 text-xs sm:text-sm leading-relaxed">{displayedError}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Institutional Login Form */}
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            {/* E-mail Acadêmico */}
+            <div>
+              <label
+                htmlFor="login-email"
+                className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5"
               >
-                <span>{submitting || loading ? 'Entrando...' : 'Entrar'}</span>
-              </button>
+                E-mail acadêmico
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <input
+                  id="login-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setLocalError(null);
+                    clearAuthError();
+                  }}
+                  placeholder="nome.sobrenome@cs.udf.edu.br"
+                  autoComplete="username"
+                  required
+                  autoFocus
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:border-[#003B71] focus:ring-2 focus:ring-[#003B71]/20 bg-white text-sm text-slate-900 placeholder:text-slate-400 transition-all outline-none"
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Apenas contas acadêmicas com o formato <span className="font-semibold text-slate-700">@cs.udf.edu.br</span>.
+              </p>
+            </div>
 
-              <div className="text-center pt-1">
+            {/* Senha */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="login-password"
+                  className="block text-xs font-bold text-slate-700 uppercase tracking-wider"
+                >
+                  Senha
+                </label>
                 <button
                   type="button"
                   onClick={() => {
-                    clearAuthError();
-                    setLocalError(null);
-                    setResetSuccessMessage(null);
-                    setViewMode('forgot_password');
+                    setForgotEmail(email);
+                    setForgotFeedback(null);
+                    setShowForgotPasswordModal(true);
                   }}
-                  className="text-xs font-semibold text-[#007BFF] hover:text-[#003366] transition-colors cursor-pointer"
+                  className="text-xs font-semibold text-[#007BFF] hover:text-[#003B71] hover:underline cursor-pointer"
                 >
                   Esqueci minha senha
                 </button>
               </div>
-
-              {/* Acesso Temporário Direto Liberado para Immi */}
-              <div className="pt-3 border-t border-slate-200">
-                <div className="p-3 bg-gradient-to-r from-[#E6F6FF] to-blue-50 border border-[#00AEEF]/40 rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#003366]">
-                      <Sparkles className="w-3.5 h-3.5 text-[#00AEEF]" />
-                      <span>Acesso Temporário Liberado</span>
-                    </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">
-                      Perfil Administrador
-                    </span>
-                  </div>
-
-                  <p className="text-[11px] text-[#64748B] leading-relaxed">
-                    Clique abaixo para entrar diretamente como <strong>Immi</strong> (ou preencha{' '}
-                    <code className="text-[#003366] font-mono text-[10px] bg-white px-1 py-0.5 rounded border border-slate-200">
-                      immi@cs.udf.edu.br
-                    </code>{' '}
-                    com a senha provisória).
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={submitting || loading}
-                      onClick={async () => {
-                        setLocalError(null);
-                        clearAuthError();
-                        setSubmitting(true);
-                        await loginAsTemporaryImmi();
-                        setSubmitting(false);
-                      }}
-                      className="flex-1 py-2 px-3 bg-[#003366] hover:bg-[#002244] active:bg-[#001830] text-white text-xs font-semibold rounded-lg shadow-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      <UserCheck className="w-3.5 h-3.5 text-[#00AEEF]" />
-                      <span>Entrar como Immi (1 Clique)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEmailInput('immi@cs.udf.edu.br');
-                        setPasswordInput('Immi@2026!');
-                        setEmailVerifiedStatus('authorized');
-                        setLocalError(null);
-                        clearAuthError();
-                      }}
-                      className="py-2 px-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-[#003366] text-[11px] font-medium rounded-lg transition-colors cursor-pointer"
-                      title="Preencher campos de login"
-                    >
-                      Preencher campos
-                    </button>
-                  </div>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
                 </div>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleSubmitPasswordReset} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="reset-email"
-                  className="block text-xs font-medium text-[#003366] mb-1.5"
-                >
-                  E-mail institucional
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-[#64748B] absolute left-3.5 top-3" />
-                  <input
-                    id="reset-email"
-                    type="email"
-                    required
-                    value={emailInput}
-                    onChange={(e) => {
-                      setEmailInput(e.target.value);
-                      setLocalError(null);
-                      setResetSuccessMessage(null);
-                    }}
-                    placeholder="usuario@cs.udf.edu.br"
-                    className="w-full pl-10 pr-3.5 py-2.5 text-xs bg-[#F8FAFC] border border-slate-200 rounded-xl text-[#1E293B] focus:outline-none focus:ring-2 focus:ring-[#00AEEF] focus:bg-white transition-all"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-2.5 px-4 bg-[#00AEEF] hover:bg-[#007BFF] active:bg-[#003366] disabled:bg-slate-300 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
-              >
-                <span>{submitting ? 'Enviando...' : 'Solicitar redefinição'}</span>
-              </button>
-
-              <div className="text-center pt-1">
+                <input
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setLocalError(null);
+                    clearAuthError();
+                  }}
+                  placeholder="Digite sua senha de acesso"
+                  autoComplete="current-password"
+                  required
+                  className="w-full pl-10 pr-11 py-3 rounded-xl border border-slate-300 focus:border-[#003B71] focus:ring-2 focus:ring-[#003B71]/20 bg-white text-sm text-slate-900 placeholder:text-slate-400 transition-all outline-none"
+                />
                 <button
                   type="button"
-                  onClick={() => {
-                    clearAuthError();
-                    setLocalError(null);
-                    setResetSuccessMessage(null);
-                    setViewMode('login');
-                  }}
-                  className="text-xs font-semibold text-[#64748B] hover:text-[#003366] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                  tabIndex={-1}
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Voltar ao login do SIGCO</span>
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={submitting || loading}
+                className="w-full inline-flex items-center justify-center gap-2 bg-[#003B71] hover:bg-[#002D57] active:scale-[0.99] text-white font-semibold text-sm sm:text-base py-3.5 px-6 rounded-xl transition-all shadow-sm hover:shadow cursor-pointer disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-[#003B71]/40 focus:ring-offset-2"
+              >
+                <span>{submitting ? 'Entrando no SIGCO...' : 'Entrar no SIGCO'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+
+          {/* Support Section */}
+          <div className="mt-12 pt-6 border-t border-slate-200">
+            <h2 className="text-base font-bold text-[#003B71]">
+              Acesso institucional e primeiro acesso
+            </h2>
+            <p className="mt-1.5 text-xs text-slate-600 leading-relaxed">
+              O cadastro é realizado exclusivamente pela coordenação ou administração da clínica odontológica.
+              Caso ainda não possua acesso, solicite o cadastro à equipe responsável.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotEmail(email);
+                  setForgotFeedback(null);
+                  setShowForgotPasswordModal(true);
+                }}
+                className="text-[#007BFF] hover:underline cursor-pointer"
+              >
+                Esqueci minha senha &rarr;
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSetupWizard(true)}
+                className="text-[#003B71] hover:underline cursor-pointer font-bold"
+              >
+                Guia de ativação do Firebase &rarr;
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="w-full border-t border-slate-200 bg-white py-4 px-6 text-center text-xs text-slate-500">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>
+            © {new Date().getFullYear()} Centro Universitário UDF — Clínica Odontológica. Todos os direitos reservados.
+          </span>
+          <span className="text-slate-400">
+            SIGCO v2.8 • Autenticação E-mail/Senha
+          </span>
+        </div>
+      </footer>
+
+      {/* Forgot Password Modal (Firebase Authentication sendPasswordResetEmail) */}
+      {showForgotPasswordModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#E6F6FF] flex items-center justify-center text-[#003B71]">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Recuperação de Senha
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Firebase Authentication • UDF Odontologia
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForgotPasswordModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleForgotPassword} className="mt-5 space-y-4">
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Informe o seu e-mail acadêmico para receber o link oficial de redefinição de senha:
+              </p>
+
+              <div>
+                <label
+                  htmlFor="forgot-email"
+                  className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1"
+                >
+                  E-mail acadêmico
+                </label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="seu.nome@cs.udf.edu.br"
+                  required
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-[#003B71] focus:ring-2 focus:ring-[#003B71]/20 text-xs sm:text-sm text-slate-900 outline-none"
+                />
+              </div>
+
+              {forgotFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
+                    forgotFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                      : 'bg-red-50 text-red-900 border border-red-200'
+                  }`}
+                >
+                  {forgotFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <span className="leading-relaxed">{forgotFeedback.message}</span>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  type="submit"
+                  disabled={forgotSubmitting}
+                  className="px-4 py-2 rounded-xl bg-[#003B71] hover:bg-[#002D57] text-white text-xs font-semibold shadow-2xs cursor-pointer disabled:opacity-60"
+                >
+                  {forgotSubmitting ? 'Enviando link...' : 'Enviar link de redefinição'}
                 </button>
               </div>
             </form>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
