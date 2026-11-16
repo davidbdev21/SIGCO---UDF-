@@ -53,6 +53,7 @@ interface ClinicDataContextValue {
   removeWaitingListLocal: (id: string) => void;
   addWaitingListLocal: (entry: WaitingListEntry) => void;
   updateAppointmentLocal: (id: string, updates: Partial<Appointment>) => void;
+  removeUserLocal: (id: string) => void;
 }
 
 const ClinicDataContext = createContext<ClinicDataContextValue | undefined>(undefined);
@@ -79,6 +80,7 @@ export const ClinicDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [users, setUsers] = useState<SystemUser[]>([]);
+  const [deletedUserIds, setDeletedUserIds] = useState<string[]>([]);
   const [dataLoading, setDataLoading] = useState<boolean>(true);
 
   const updateWaitingListLocal = React.useCallback(
@@ -107,7 +109,13 @@ export const ClinicDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     []
   );
 
+  const removeUserLocal = React.useCallback((id: string) => {
+    setDeletedUserIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setUsers((prev) => prev.filter((u) => u.id !== id));
+  }, []);
+
   useEffect(() => {
+    setDeletedUserIds([]);
     if (!firebaseUser) {
       if (systemUser) {
         // No modo de desenvolvimento direto sem login: carrega dados de demonstração locais
@@ -356,12 +364,15 @@ export const ClinicDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         professors,
         notifications,
         auditLogs,
-        users: users.length > 0 ? users : synthesizedUsers,
+        users: (users.length > 0 ? users : synthesizedUsers).filter(
+          (u) => !deletedUserIds.includes(u.id)
+        ),
         dataLoading,
         updateWaitingListLocal,
         removeWaitingListLocal,
         addWaitingListLocal,
         updateAppointmentLocal,
+        removeUserLocal,
       }}
     >
       {children}

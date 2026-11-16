@@ -554,7 +554,7 @@ service cloud.firestore {
           'name', 'email', 'role', 'registrationCode', 'specialty', 'active', 'createdAt', 'lastAccess', 'mustChangePassword'
         ]))
       );
-      allow delete: if isAdmin() && isValidId(userId) && request.auth.uid != userId;
+      allow delete: if isAdmin() && isValidId(userId);
     }
 
     // =========================================================================

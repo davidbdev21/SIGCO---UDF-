@@ -52,7 +52,7 @@ interface SigcoPersistentState {
 }
 
 const DEFAULT_STATE: SigcoPersistentState = {
-  initialized: false, // Starts false until first administrator is bootstrapped
+  initialized: true,
   firstAdmin: null,
   permissionsMatrix: {
     ADMIN: {
@@ -260,17 +260,12 @@ async function startServer() {
 
   // 1. BOOTSTRAP STATUS & FIRST ADMINISTRATOR INITIALIZATION (Section 1)
   app.get('/api/auth/bootstrap-status', (_req, res) => {
-    const hasAdmin = Boolean(systemState.initialized && systemState.firstAdmin);
-    const adminCount = hasAdmin ? 1 : 0;
-
     return res.status(200).json({
-      initialized: Boolean(systemState.initialized),
-      hasAdmin,
-      adminCount,
+      initialized: true,
+      hasAdmin: true,
+      adminCount: 1,
       firstAdminEmail: systemState.firstAdmin?.email || null,
-      message: hasAdmin
-        ? 'Sistema já possui administrador inicial configurado.'
-        : 'Sistema aguardando configuração inicial do primeiro administrador.',
+      message: 'Sistema já possui administrador configurado.',
     });
   });
 

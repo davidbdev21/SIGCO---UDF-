@@ -21,7 +21,6 @@ import {
   getFriendlyErrorMessage,
   onAuthStateChanged,
   reauthenticateWithCredential,
-  sendPasswordResetEmail,
   signInAnonymously,
   signInWithCredential,
   signInWithEmailAndPassword,
@@ -39,7 +38,6 @@ import {
 } from '../utils/validation';
 import {
   adminCreateUserOnServer,
-  adminSendPasswordResetOnServer,
   adminToggleUserStatusOnServer,
   adminUpdateUserOnServer,
   bootstrapFirstAdminOnServer,
@@ -47,7 +45,6 @@ import {
   DEACTIVATED_SIGCO_USER_MESSAGE,
   getBootstrapStatusOnServer,
   getPermissionsMatrixOnServer,
-  requestPublicPasswordResetOnServer,
   syncAuthorizedUsersOnServer,
   UNAUTHORIZED_SIGCO_EMAIL_MESSAGE,
   updatePermissionsMatrixOnServer,
@@ -121,7 +118,6 @@ interface AuthContextValue {
     message: string;
     isUnconfigured?: boolean;
   }>;
-  requestPasswordReset: (email: string) => Promise<{ success: boolean; message: string }>;
   changeOwnPassword: (
     currentPassword: string,
     newPassword: string
@@ -137,9 +133,6 @@ interface AuthContextValue {
   adminToggleUserStatus: (
     targetUser: SystemUser,
     nextActive: boolean
-  ) => Promise<{ success: boolean; message: string }>;
-  adminSendPasswordReset: (
-    targetUser: SystemUser
   ) => Promise<{ success: boolean; message: string }>;
   adminDeleteUser: (targetUser: SystemUser) => Promise<{ success: boolean; message: string }>;
   permissionsMatrix: SystemPermissionsMatrix;
@@ -219,11 +212,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isInteractiveLoginRef = React.useRef<boolean>(false);
   const lastAuthFailureReasonRef = React.useRef<string | null>(null);
 
-  // Section 1: Initial System Bootstrap Status (First Administrator Check)
+  // System Bootstrap Status (Administrator already provisioned)
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapState>({
-    initialized: false,
-    hasAdmin: false,
-    adminCount: 0,
+    initialized: true,
+    hasAdmin: true,
+    adminCount: 1,
     firstAdminEmail: null,
   });
 
@@ -607,51 +600,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { authorized: true, message: check.message };
   };
 
-  // Section 10: Forgot Password (Requirement 6: never reveals if account exists)
-  const requestPasswordReset = async (
-    email: string
-  ): Promise<{ success: boolean; message: string }> => {
-    const trimmed = (email || '').trim().toLowerCase();
-    if (!isValidInstitutionalEmail(trimmed)) {
-      return {
-        success: false,
-        message: RESTRICTED_DOMAIN_MESSAGE,
-      };
-    }
-
-    try {
-      await requestPublicPasswordResetOnServer(trimmed);
-      try {
-        await sendPasswordResetEmail(auth, trimmed);
-      } catch {
-        // Continue with generic response
-      }
-
-      if (systemUser) {
-        await recordAuditLog({
-          uid: systemUser.uid,
-          userName: systemUser.name,
-          userEmail: systemUser.email,
-          userRole: systemUser.role,
-          action: 'SOLICITACAO_DE_REDEFINICAO',
-          targetRecord: `Usuário afetado: ${trimmed}`,
-          operationSummary: `Solicitação de redefinição de senha para ${trimmed}.`,
-        }).catch(() => {});
-      }
-
-      // Requirement 6: Generic response to avoid leaking whether account exists
-      return {
-        success: true,
-        message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada para sua caixa de entrada.',
-      };
-    } catch {
-      return {
-        success: true,
-        message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada para sua caixa de entrada.',
-      };
-    }
-  };
-
   // Section 9: Change Own Password (Meu Perfil -> Segurança -> Alterar senha)
   const changeOwnPassword = async (
     currentPassword: string,
@@ -932,43 +880,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Section 11 & 19: Admin initiates secure password reset email (never sees password)
-  const adminSendPasswordReset = async (
-    targetUser: SystemUser
-  ): Promise<{ success: boolean; message: string }> => {
-    if (!systemUser || systemUser.role !== 'ADMIN') {
-      return {
-        success: false,
-        message: 'Somente o Administrador pode iniciar a redefinição administrativa de senha.',
-      };
-    }
-
-    try {
-      await sendPasswordResetEmail(auth, targetUser.email);
-
-      await recordAuditLog({
-        uid: systemUser.uid,
-        userName: systemUser.name,
-        userEmail: systemUser.email,
-        userRole: systemUser.role,
-        action: 'SOLICITACAO_DE_REDEFINICAO',
-        targetRecord: `Usuário afetado: ${targetUser.name} (${targetUser.email})`,
-        operationSummary: `Administrador ${systemUser.name} enviou e-mail oficial de redefinição de senha para ${targetUser.name} (${targetUser.email}).`,
-      });
-
-      return {
-        success: true,
-        message: `E-mail de redefinição de senha enviado com segurança para ${targetUser.email}.`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: getFriendlyErrorMessage(error),
-      };
-    }
-  };
-
-  // Section 12, 13 & 19: Admin deletes user profile safely (preserving clinical history & audit)
+  // Section 12, 13 & 19: Admin deletes any user profile safely (preserving clinical history & audit)
   const adminDeleteUser = async (
     targetUser: SystemUser
   ): Promise<{ success: boolean; message: string }> => {
@@ -979,21 +891,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    // Section 13: Admin cannot delete their own account
-    if (
+    const isSelfDelete =
       targetUser.id === systemUser.id ||
       targetUser.uid === systemUser.uid ||
-      targetUser.email.toLowerCase() === systemUser.email.toLowerCase()
-    ) {
-      return {
-        success: false,
-        message: 'Operação bloqueada: o administrador não pode excluir a própria conta.',
-      };
-    }
+      targetUser.email.toLowerCase() === systemUser.email.toLowerCase();
 
     try {
-      // Delete user profile document while preserving all medical records, evolutions, appointments, and audit logs
-      await deleteDoc(doc(db, 'users', targetUser.id));
+      // Delete user profile document in Firestore when authenticated with Firebase,
+      // while preserving all medical records, evolutions, appointments, and audit logs.
+      if (firebaseUser) {
+        await deleteDoc(doc(db, 'users', targetUser.id));
+      }
 
       // Remove from authorized login registry
       await syncAuthorizedUsersOnServer([], targetUser.email);
@@ -1003,15 +911,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const timeStr = now.toLocaleTimeString('pt-BR');
 
       // Section 13 & 19: Record Admin, Affected User, Action, Date, and Time
-      await recordAuditLog({
-        uid: systemUser.uid,
-        userName: systemUser.name,
-        userEmail: systemUser.email,
-        userRole: systemUser.role,
-        action: 'EXCLUSAO',
-        targetRecord: `Usuário afetado: ${targetUser.name} (${targetUser.email})`,
-        operationSummary: `Administrador: ${systemUser.name} (${systemUser.email}) | Usuário afetado: ${targetUser.name} (${targetUser.email}) | Ação: EXCLUSAO | Data: ${dateStr} | Hora: ${timeStr}. Prontuários e históricos clínicos preservados.`,
-      });
+      if (firebaseUser) {
+        await recordAuditLog({
+          uid: systemUser.uid,
+          userName: systemUser.name,
+          userEmail: systemUser.email,
+          userRole: systemUser.role,
+          action: 'EXCLUSAO',
+          targetRecord: `Usuário afetado: ${targetUser.name} (${targetUser.email})`,
+          operationSummary: `Administrador: ${systemUser.name} (${systemUser.email}) | Usuário afetado: ${targetUser.name} (${targetUser.email}) | Ação: EXCLUSAO | Data: ${dateStr} | Hora: ${timeStr}. Prontuários e históricos clínicos preservados.`,
+        }).catch(() => {});
+      }
+
+      if (isSelfDelete) {
+        await logout();
+      }
 
       return {
         success: true,
@@ -1179,7 +1093,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         raw.includes('auth/user-not-found')
       ) {
         const msg =
-          'E-mail acadêmico ou senha incorretos. Verifique os dados informados ou use Esqueci minha senha.';
+          'E-mail acadêmico ou senha incorretos. Verifique os dados informados.';
         setAuthError(msg);
         return { success: false, message: msg };
       }
@@ -1276,12 +1190,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithEmailAndPassword,
         loginWithGoogleInstitutional,
         loginWithMicrosoftEntra,
-        requestPasswordReset,
         changeOwnPassword,
         adminCreateUser,
         adminUpdateUser,
         adminToggleUserStatus,
-        adminSendPasswordReset,
         adminDeleteUser,
         permissionsMatrix,
         updatePermissionsMatrix,

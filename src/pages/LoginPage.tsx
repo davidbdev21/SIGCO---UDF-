@@ -3,36 +3,25 @@ import {
   AlertTriangle,
   Info,
   ExternalLink,
-  ShieldCheck,
-  X,
-  BookOpen,
   Mail,
   Lock,
   Eye,
   EyeOff,
   ArrowRight,
-  CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { UdfOfficialLogo } from '../components/BrandIdentity';
-import { InstitutionalSetupWizardPage } from './InstitutionalSetupWizardPage';
 import { FIREBASE_CONSOLE_AUTH_PROVIDERS_URL } from '../services/firebase';
 import { INSTITUTIONAL_PERSONAS } from '../services/seedData';
 import { ROLE_LABELS } from '../utils/validation';
 
-interface LoginPageProps {
-  onGoToSetup?: () => void;
-}
-
-export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
+export const LoginPage: React.FC = () => {
   const {
     loginWithEmailAndPassword,
-    requestPasswordReset,
     switchInstitutionalPersona,
     authError,
     clearAuthError,
     loading,
-    bootstrapStatus,
   } = useAuth();
 
   const [email, setEmail] = useState<string>('');
@@ -41,22 +30,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [providerNotice, setProviderNotice] = useState<string | null>(null);
-
-  // Forgot password modal
-  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState<boolean>(false);
-  const [forgotEmail, setForgotEmail] = useState<string>('');
-  const [forgotSubmitting, setForgotSubmitting] = useState<boolean>(false);
-  const [forgotFeedback, setForgotFeedback] = useState<{
-    type: 'success' | 'error';
-    message: string;
-  } | null>(null);
-
-  // Setup wizard modal
-  const [showSetupWizard, setShowSetupWizard] = useState<boolean>(false);
-
-  if (showSetupWizard) {
-    return <InstitutionalSetupWizardPage onBackToLogin={() => setShowSetupWizard(false)} />;
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,63 +77,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
     }
   };
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotFeedback(null);
-
-    const trimmed = forgotEmail.trim().toLowerCase();
-    if (!trimmed) {
-      setForgotFeedback({
-        type: 'error',
-        message: 'Informe seu e-mail acadêmico cadastrado.',
-      });
-      return;
-    }
-
-    const isDevAdmin = trimmed === 'davidb.dev21@gmail.com';
-    if (!isDevAdmin && !trimmed.endsWith('@cs.udf.edu.br')) {
-      setForgotFeedback({
-        type: 'error',
-        message: 'Informe um endereço com formato @cs.udf.edu.br.',
-      });
-      return;
-    }
-
-    setForgotSubmitting(true);
-    try {
-      const result = await requestPasswordReset(trimmed);
-      setForgotFeedback({
-        type: result.success ? 'success' : 'error',
-        message: result.message,
-      });
-    } catch {
-      setForgotFeedback({
-        type: 'error',
-        message: 'Não foi possível solicitar a redefinição de senha neste momento.',
-      });
-    } finally {
-      setForgotSubmitting(false);
-    }
-  };
-
   const displayedError = localError || (authError && !authError.includes('indisponível') ? authError : null);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between font-sans selection:bg-[#00AEEF]/20">
       {/* Top Banner / White Space */}
       <div className="w-full max-w-4xl mx-auto px-6 sm:px-10 pt-8 sm:pt-12 pb-12 flex-1 flex flex-col justify-center">
-        {/* Official UDF Institutional Header & Top Actions */}
+        {/* Official UDF Institutional Header */}
         <div className="flex items-center justify-between flex-wrap gap-4 mb-8 sm:mb-10">
           <UdfOfficialLogo size="lg" showSubtitle={true} />
-          <button
-            type="button"
-            onClick={() => setShowSetupWizard(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 hover:border-[#003B71] text-xs font-semibold text-[#003B71] bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-2xs"
-            title="Abrir instruções de ativação do provedor E-mail/Senha no Firebase"
-          >
-            <BookOpen className="w-4 h-4 text-[#00AEEF]" />
-            <span>Configurar E-mail/Senha no Firebase</span>
-          </button>
         </div>
 
         {/* Main Content Area */}
@@ -181,29 +106,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
             Informe seu e-mail acadêmico (<span className="text-[#003B71] font-semibold">@cs.udf.edu.br</span>) e sua senha cadastrada pelo administrador.
           </p>
 
-          {/* Initial Setup Banner (shown if no admin has been created yet) */}
-          {!bootstrapStatus.hasAdmin && onGoToSetup && (
-            <div className="mt-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-sm flex items-start gap-3 animate-in fade-in">
-              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
-              <div className="leading-relaxed flex-1">
-                <div className="font-semibold text-emerald-950">Configuração Inicial Pendente</div>
-                <p className="mt-0.5 text-xs text-emerald-900">
-                  Nenhum administrador foi encontrado no sistema. Clique abaixo para cadastrar o primeiro administrador e inicializar o SIGCO.
-                </p>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={onGoToSetup}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-2xs cursor-pointer"
-                  >
-                    <span>Criar Primeiro Administrador</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Provider Warning Notice (shown when Email/Password provider needs activation in Firebase) */}
           {providerNotice && (
             <div className="mt-6 p-4 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-sm flex items-start gap-3 animate-in fade-in">
@@ -223,13 +125,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
                     <span>Abrir Console do Firebase</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
-                  <button
-                    type="button"
-                    onClick={() => setShowSetupWizard(true)}
-                    className="text-xs font-bold text-[#003B71] hover:underline cursor-pointer"
-                  >
-                    Ver instruções passo a passo &rarr;
-                  </button>
                 </div>
               </div>
             </div>
@@ -290,17 +185,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
                 >
                   Senha
                 </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setForgotEmail(email);
-                    setForgotFeedback(null);
-                    setShowForgotPasswordModal(true);
-                  }}
-                  className="text-xs font-semibold text-[#007BFF] hover:text-[#003B71] hover:underline cursor-pointer"
-                >
-                  Esqueci minha senha
-                </button>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -348,32 +232,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
           {/* Support Section */}
           <div className="mt-12 pt-6 border-t border-slate-200">
             <h2 className="text-base font-bold text-[#003B71]">
-              Acesso institucional e primeiro acesso
+              Acesso institucional e alteração de senha
             </h2>
             <p className="mt-1.5 text-xs text-slate-600 leading-relaxed">
               O cadastro é realizado exclusivamente pela coordenação ou administração da clínica odontológica.
-              Caso ainda não possua acesso, solicite o cadastro à equipe responsável.
+              Cada usuário pode alterar sua própria senha após entrar no sistema, em <strong>Configurações</strong> ou <strong>Meu Perfil → Segurança</strong>.
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotEmail(email);
-                  setForgotFeedback(null);
-                  setShowForgotPasswordModal(true);
-                }}
-                className="text-[#007BFF] hover:underline cursor-pointer"
-              >
-                Esqueci minha senha &rarr;
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSetupWizard(true)}
-                className="text-[#003B71] hover:underline cursor-pointer font-bold"
-              >
-                Guia de ativação do Firebase &rarr;
-              </button>
-            </div>
           </div>
 
           {/* Development Quick Role Test Panel (Dev Mode Only - Requirement 4) */}
@@ -429,99 +293,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
           </span>
         </div>
       </footer>
-
-      {/* Forgot Password Modal (Firebase Authentication sendPasswordResetEmail) */}
-      {showForgotPasswordModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
-        >
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#E6F6FF] flex items-center justify-center text-[#003B71]">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base">
-                    Recuperação de Senha
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Firebase Authentication • UDF Odontologia
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowForgotPasswordModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleForgotPassword} className="mt-5 space-y-4">
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                Informe o seu e-mail acadêmico para receber o link oficial de redefinição de senha:
-              </p>
-
-              <div>
-                <label
-                  htmlFor="forgot-email"
-                  className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1"
-                >
-                  E-mail acadêmico
-                </label>
-                <input
-                  id="forgot-email"
-                  type="email"
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="seu.nome@cs.udf.edu.br"
-                  required
-                  autoFocus
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-[#003B71] focus:ring-2 focus:ring-[#003B71]/20 text-xs sm:text-sm text-slate-900 outline-none"
-                />
-              </div>
-
-              {forgotFeedback && (
-                <div
-                  className={`p-3 rounded-xl text-xs flex items-start gap-2 ${
-                    forgotFeedback.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                      : 'bg-red-50 text-red-900 border border-red-200'
-                  }`}
-                >
-                  {forgotFeedback.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  )}
-                  <span className="leading-relaxed">{forgotFeedback.message}</span>
-                </div>
-              )}
-
-              <div className="pt-2 flex items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowForgotPasswordModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                >
-                  Fechar
-                </button>
-                <button
-                  type="submit"
-                  disabled={forgotSubmitting}
-                  className="px-4 py-2 rounded-xl bg-[#003B71] hover:bg-[#002D57] text-white text-xs font-semibold shadow-2xs cursor-pointer disabled:opacity-60"
-                >
-                  {forgotSubmitting ? 'Enviando link...' : 'Enviar link de redefinição'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

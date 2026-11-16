@@ -481,32 +481,30 @@ export const InstitutionalSetupWizardPage: React.FC<{
               </div>
             )}
 
-            {/* STEP 6: Recuperação de senha no Firebase */}
+            {/* STEP 6: Alteração de senha pelo próprio usuário */}
             {currentStep.id === 6 && (
               <div className="space-y-5 text-sm text-slate-700">
                 <p>
-                  A recuperação de senha é realizada de forma segura pelo próprio <strong>Firebase Authentication</strong>:
+                  Cada usuário gerencia e altera sua própria senha diretamente dentro do SIGCO pelo <strong>Firebase Authentication</strong>:
                 </p>
 
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs sm:text-sm">
                   <div className="font-bold text-slate-900 flex items-center gap-2">
                     <Mail className="w-4 h-4 text-[#003B71]" />
-                    <span>Envio de Link Oficial por E-mail</span>
+                    <span>Alteração de Senha em Configurações ou Meu Perfil</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed">
-                    Na tela de login, o usuário clica em <strong>Esqueci minha senha</strong> e informa seu e-mail acadêmico.
-                    O Firebase Authentication gera um link de uso único e envia para a caixa postal correspondente.
-                    Ao clicar no link, o usuário define uma nova senha e pode acessar imediatamente o SIGCO.
+                    Após entrar no sistema, qualquer usuário (Administrador, Recepção, Triagem, Professor ou Aluno) acessa <strong>Configurações → Segurança</strong> ou <strong>Meu Perfil → Segurança</strong>, informa sua senha atual e define uma nova senha de acesso.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs sm:text-sm">
                   <div className="font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-[#003B71]" />
-                    <span>Redefinição Administrativa</span>
+                    <span>Privacidade de Credenciais</span>
                   </div>
                   <p className="text-slate-600 leading-relaxed">
-                    O administrador também pode disparar a redefinição administrativa diretamente na listagem de usuários do sistema, sem jamais visualizar a senha do aluno ou professor.
+                    Por motivos de segurança e conformidade, administradores nunca visualizam a senha atual dos usuários nem realizam redefinição remota.
                   </p>
                 </div>
               </div>
@@ -559,7 +557,7 @@ export const InstitutionalSetupWizardPage: React.FC<{
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
                     <div className="font-bold text-xs text-red-700">2. Login com senha incorreta</div>
-                    <p className="text-xs text-slate-600">Mensagem: "E-mail acadêmico ou senha incorretos. Verifique os dados informados ou use Esqueci minha senha."</p>
+                    <p className="text-xs text-slate-600">Mensagem: "E-mail acadêmico ou senha incorretos. Verifique os dados informados."</p>
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
@@ -573,8 +571,8 @@ export const InstitutionalSetupWizardPage: React.FC<{
                   </div>
 
                   <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                    <div className="font-bold text-xs text-[#003B71]">5. Recuperação de senha</div>
-                    <p className="text-xs text-slate-600">Disparo de link oficial de redefinição via Firebase Authentication.</p>
+                    <div className="font-bold text-xs text-[#003B71]">5. Alteração de senha pelo usuário</div>
+                    <p className="text-xs text-slate-600">Cada usuário altera a própria senha em Configurações ou Meu Perfil → Segurança.</p>
                   </div>
                 </div>
               </div>
