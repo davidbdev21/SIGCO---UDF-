@@ -10,10 +10,16 @@ import {
   AlertCircle,
   ArrowRight,
   ShieldAlert,
+  ExternalLink,
+  RefreshCw,
+  Play,
+  Check,
+  Info,
 } from 'lucide-react';
 import { InstitutionalLockup } from '../components/BrandIdentity';
 import { useAuth, validateSigcoPasswordStrength } from '../auth/AuthContext';
 import { isValidInstitutionalEmail, RESTRICTED_DOMAIN_MESSAGE } from '../utils/validation';
+import { FIREBASE_CONSOLE_AUTH_PROVIDERS_URL } from '../services/firebase';
 
 interface InitialSetupPageProps {
   onSetupSuccess?: () => void;
@@ -24,7 +30,7 @@ export const InitialSetupPage: React.FC<InitialSetupPageProps> = ({
   onSetupSuccess,
   onGoToLogin,
 }) => {
-  const { bootstrapFirstAdmin } = useAuth();
+  const { bootstrapFirstAdmin, enterDevDemoMode } = useAuth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -111,6 +117,22 @@ export const InitialSetupPage: React.FC<InitialSetupPageProps> = ({
     }
   };
 
+  const handleEnterDevDemo = () => {
+    if (!import.meta.env.DEV) return;
+    const trimmedName = name.trim() || 'Prof. Dr. Roberto Mendes';
+    const trimmedEmail = email.trim().toLowerCase() || 'administrador@cs.udf.edu.br';
+    enterDevDemoMode({
+      name: trimmedName,
+      email: trimmedEmail,
+      role: 'ADMIN',
+      registrationCode: 'ADM-001',
+      specialty: 'Gestão Clínica Geral',
+    });
+    if (onSetupSuccess) {
+      onSetupSuccess();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#001f3f] via-[#003366] to-[#002244] text-[#1E293B] flex flex-col justify-center items-center p-4 sm:p-6">
       <div className="w-full max-w-lg">
@@ -149,29 +171,93 @@ export const InitialSetupPage: React.FC<InitialSetupPageProps> = ({
             </div>
           </div>
 
-          {/* Feedback message */}
+          {/* Feedback message & Firebase activation instructions */}
           {feedback && (
-            <div
-              className={`p-4 rounded-xl text-xs flex items-start gap-3 border ${
-                feedback.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                  : 'bg-rose-50 text-rose-900 border-rose-200'
-              }`}
-            >
-              {feedback.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              )}
-              <div className="space-y-1">
-                <p className="font-semibold">{feedback.message}</p>
-                {feedback.isProviderDisabled && (
-                  <p className="text-[11px] text-rose-700">
-                    Dica: No Firebase Console &gt; Authentication &gt; Provedores de login,
-                    ative o provedor <strong>E-mail/senha</strong>.
-                  </p>
+            <div className="space-y-3">
+              <div
+                className={`p-4 rounded-xl text-xs flex items-start gap-3 border ${
+                  feedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                    : 'bg-rose-50 text-rose-900 border-rose-200'
+                }`}
+              >
+                {feedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
+                <div className="space-y-1 flex-1">
+                  <p className="font-semibold">{feedback.message}</p>
+                </div>
               </div>
+
+              {/* Step-by-step activation guide when provider is disabled */}
+              {feedback.isProviderDisabled && (
+                <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-300/80 text-amber-950 text-xs space-y-3 shadow-xs">
+                  <div className="flex items-center gap-2 font-bold text-sm text-amber-950">
+                    <Info className="w-4 h-4 text-amber-700" />
+                    <span>Como Ativar o Provedor E-mail/Senha no Firebase</span>
+                  </div>
+
+                  <p className="text-amber-900 leading-relaxed">
+                    O Firebase Authentication deste projeto (<code>ornate-quanta-6hl8x</code>) ainda não possui o método <strong>E-mail/senha</strong> habilitado no console da nuvem. Siga os passos rápidos abaixo:
+                  </p>
+
+                  <ol className="list-decimal list-inside space-y-1.5 text-amber-950 font-medium bg-white/70 p-3 rounded-xl border border-amber-200">
+                    <li>
+                      Acesse a página oficial de provedores:{' '}
+                      <a
+                        href={FIREBASE_CONSOLE_AUTH_PROVIDERS_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-bold text-[#003366] hover:underline"
+                      >
+                        <span>Abrir Console do Firebase</span>
+                        <ExternalLink className="w-3 h-3 text-[#00AEEF]" />
+                      </a>
+                    </li>
+                    <li>Na lista de provedores, clique sobre a linha <strong>E-mail/senha</strong>.</li>
+                    <li>Ative a 1ª opção: <strong>&ldquo;Permitir que os usuários façam login usando o endereço de e-mail e a senha&rdquo;</strong>.</li>
+                    <li>Clique no botão azul <strong>Salvar</strong>.</li>
+                    <li>Retorne a esta tela e clique no botão de recarregar abaixo.</li>
+                  </ol>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      className="px-3.5 py-2 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Tentar Novamente no Firebase</span>
+                    </button>
+                  </div>
+
+                  {/* Development Mode: Visual Evaluation Fallback (Requisito 4) */}
+                  {import.meta.env.DEV && (
+                    <div className="mt-3 pt-3 border-t border-amber-200/80 space-y-2">
+                      <div className="text-[11px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <Play className="w-3.5 h-3.5 text-[#003366]" />
+                        <span>Acesso para Teste Visual Imediato (Modo Dev)</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Se preferir avaliar as telas e testar os módulos clínicos imediatamente sem aguardar a ativação no console, entre no modo de teste visual com o administrador informado:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleEnterDevDemo}
+                        className="w-full py-2.5 px-4 bg-[#003366] hover:bg-[#002244] text-white font-bold text-xs rounded-xl shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <ShieldCheck className="w-4 h-4 text-[#00AEEF]" />
+                        <span>Entrar como Administrador em Modo de Avaliação Visual (Dev)</span>
+                      </button>
+                      <p className="text-[10px] text-slate-500 text-center">
+                        * Utiliza dados locais fictícios em memória. Sem persistência no banco de dados real. Desativado em produção.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -341,6 +427,19 @@ export const InitialSetupPage: React.FC<InitialSetupPageProps> = ({
                 className="text-xs text-[#007BFF] hover:underline font-medium cursor-pointer"
               >
                 Já existe administrador configurado? Ir para o login
+              </button>
+            </div>
+          )}
+
+          {import.meta.env.DEV && (
+            <div className="pt-3 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={handleEnterDevDemo}
+                className="text-xs text-[#64748B] hover:text-[#003366] font-medium flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 text-[#00AEEF]" />
+                <span>Testar interface visual imediatamente (Modo Dev com dados locais)</span>
               </button>
             </div>
           )}

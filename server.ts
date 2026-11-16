@@ -52,13 +52,8 @@ interface SigcoPersistentState {
 }
 
 const DEFAULT_STATE: SigcoPersistentState = {
-  initialized: true, // System starts with existing initial admin
-  firstAdmin: {
-    email: 'administrador@cs.udf.edu.br',
-    name: 'Coord. Roberto Mendes (Admin)',
-    uid: 'usr_seed_01',
-    createdAt: '2026-03-01T08:00:00.000Z',
-  },
+  initialized: false, // Starts false until first administrator is bootstrapped
+  firstAdmin: null,
   permissionsMatrix: {
     ADMIN: {
       allowedTabs: [
@@ -265,10 +260,8 @@ async function startServer() {
 
   // 1. BOOTSTRAP STATUS & FIRST ADMINISTRATOR INITIALIZATION (Section 1)
   app.get('/api/auth/bootstrap-status', (_req, res) => {
-    const adminCount = Array.from(authorizedAccountsRegistry.values()).filter(
-      (a) => a.role === 'ADMIN' && a.active
-    ).length;
-    const hasAdmin = systemState.initialized || adminCount > 0;
+    const hasAdmin = Boolean(systemState.initialized && systemState.firstAdmin);
+    const adminCount = hasAdmin ? 1 : 0;
 
     return res.status(200).json({
       initialized: Boolean(systemState.initialized),
@@ -278,6 +271,17 @@ async function startServer() {
       message: hasAdmin
         ? 'Sistema já possui administrador inicial configurado.'
         : 'Sistema aguardando configuração inicial do primeiro administrador.',
+    });
+  });
+
+  // Development endpoint to allow resetting initial bootstrap for testing
+  app.post('/api/auth/reset-bootstrap-dev', (_req, res) => {
+    systemState.initialized = false;
+    systemState.firstAdmin = null;
+    savePersistentState(systemState);
+    return res.status(200).json({
+      success: true,
+      message: 'Estado de inicialização reiniciado com sucesso para testes.',
     });
   });
 
@@ -336,7 +340,7 @@ async function startServer() {
       if (!authResult.success) {
         if (authResult.isProviderDisabled) {
           isBootstrappingFirstAdmin = false;
-          return res.status(503).json({
+          return res.status(200).json({
             success: false,
             isProviderDisabled: true,
             message: authResult.error,
@@ -463,7 +467,7 @@ async function startServer() {
       let uid = authResult.uid;
       if (!authResult.success) {
         if (authResult.isProviderDisabled) {
-          return res.status(503).json({
+          return res.status(200).json({
             success: false,
             isProviderDisabled: true,
             message: authResult.error,
@@ -762,11 +766,26 @@ async function startServer() {
 
     const record = authorizedAccountsRegistry.get(trimmed);
     if (!record) {
-      return res.status(403).json({
+      // Auto-authorization for institutional accounts (@cs.udf.edu.br):
+      // Assign default non-admin role (ALUNO) so newly arriving students/professors can sign in.
+      // Admins manage explicit roles in System Admin > Users.
+      const isProfessorEmail = trimmed.startsWith('prof');
+      const defaultRole = isProfessorEmail ? 'PROFESSOR' : 'ALUNO';
+      const defaultName = trimmed.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      
+      const newRecord: AccountRecord = {
+        active: true,
+        role: defaultRole,
+        name: defaultName,
+      };
+      authorizedAccountsRegistry.set(trimmed, newRecord);
+
+      return res.status(200).json({
         validDomain: true,
-        authorized: false,
-        active: false,
-        message: UNAUTHORIZED_EMAIL_MESSAGE,
+        authorized: true,
+        active: true,
+        role: defaultRole,
+        message: 'E-mail institucional autorizado com perfil de ' + (defaultRole === 'PROFESSOR' ? 'Professor' : 'Aluno') + '.',
       });
     }
 

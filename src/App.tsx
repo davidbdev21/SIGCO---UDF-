@@ -10,6 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './components/AppShell';
 import { InstitutionalLockup } from './components/BrandIdentity';
 import { InteractiveTour, TOUR_STORAGE_KEY } from './components/InteractiveTour';
+import { InitialSetupPage } from './pages/InitialSetupPage';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { PatientsPage } from './pages/PatientsPage';
@@ -26,16 +27,23 @@ import { NavigationTab } from './types';
 import { canUserAccessTab } from './utils/validation';
 
 const MainRouter: React.FC = () => {
-  const { systemUser, initializing } = useAuth();
+  const { systemUser, initializing, bootstrapStatus, permissionsMatrix } = useAuth();
   const [activeTab, setActiveTab] = useState<NavigationTab>('dashboard');
   const [tourOpen, setTourOpen] = useState<boolean>(false);
+  const [showInitialSetup, setShowInitialSetup] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!bootstrapStatus.hasAdmin) {
+      setShowInitialSetup(true);
+    }
+  }, [bootstrapStatus.hasAdmin]);
 
   // Ensure activeTab is always permitted when user switches RBAC profile
   useEffect(() => {
-    if (systemUser && !canUserAccessTab(systemUser.role, activeTab)) {
+    if (systemUser && !canUserAccessTab(systemUser.role, activeTab, permissionsMatrix)) {
       setActiveTab('dashboard');
     }
-  }, [systemUser, activeTab]);
+  }, [systemUser, activeTab, permissionsMatrix]);
 
   // First-time onboarding tour (Section 13)
   useEffect(() => {
@@ -63,7 +71,15 @@ const MainRouter: React.FC = () => {
   }
 
   if (!systemUser) {
-    return <LoginPage />;
+    if (!bootstrapStatus.hasAdmin || showInitialSetup) {
+      return (
+        <InitialSetupPage
+          onSetupSuccess={() => setShowInitialSetup(false)}
+          onGoToLogin={() => setShowInitialSetup(false)}
+        />
+      );
+    }
+    return <LoginPage onGoToSetup={() => setShowInitialSetup(true)} />;
   }
 
   return (

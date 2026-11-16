@@ -17,14 +17,22 @@ import { useAuth } from '../auth/AuthContext';
 import { UdfOfficialLogo } from '../components/BrandIdentity';
 import { InstitutionalSetupWizardPage } from './InstitutionalSetupWizardPage';
 import { FIREBASE_CONSOLE_AUTH_PROVIDERS_URL } from '../services/firebase';
+import { INSTITUTIONAL_PERSONAS } from '../services/seedData';
+import { ROLE_LABELS } from '../utils/validation';
 
-export const LoginPage: React.FC = () => {
+interface LoginPageProps {
+  onGoToSetup?: () => void;
+}
+
+export const LoginPage: React.FC<LoginPageProps> = ({ onGoToSetup }) => {
   const {
     loginWithEmailAndPassword,
     requestPasswordReset,
+    switchInstitutionalPersona,
     authError,
     clearAuthError,
     loading,
+    bootstrapStatus,
   } = useAuth();
 
   const [email, setEmail] = useState<string>('');
@@ -172,6 +180,29 @@ export const LoginPage: React.FC = () => {
           <p className="mt-4 text-slate-700 text-xs sm:text-sm leading-relaxed">
             Informe seu e-mail acadêmico (<span className="text-[#003B71] font-semibold">@cs.udf.edu.br</span>) e sua senha cadastrada pelo administrador.
           </p>
+
+          {/* Initial Setup Banner (shown if no admin has been created yet) */}
+          {!bootstrapStatus.hasAdmin && onGoToSetup && (
+            <div className="mt-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-sm flex items-start gap-3 animate-in fade-in">
+              <ShieldCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+              <div className="leading-relaxed flex-1">
+                <div className="font-semibold text-emerald-950">Configuração Inicial Pendente</div>
+                <p className="mt-0.5 text-xs text-emerald-900">
+                  Nenhum administrador foi encontrado no sistema. Clique abaixo para cadastrar o primeiro administrador e inicializar o SIGCO.
+                </p>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={onGoToSetup}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                  >
+                    <span>Criar Primeiro Administrador</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Provider Warning Notice (shown when Email/Password provider needs activation in Firebase) */}
           {providerNotice && (
@@ -344,6 +375,46 @@ export const LoginPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Development Quick Role Test Panel (Dev Mode Only - Requirement 4) */}
+          {import.meta.env.DEV && (
+            <div className="mt-8 p-5 rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-xs text-slate-600">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span>Ambiente de Desenvolvimento — Teste Visual dos Perfis</span>
+                </div>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                  Dev Mode
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+                Para avaliar as telas e fluxos clínicos enquanto a ativação do provedor E-mail/Senha está sendo concluída no Firebase Console, você pode alternar entre os perfis institucionais abaixo com dados simulados em memória:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {INSTITUTIONAL_PERSONAS.map((persona) => (
+                  <button
+                    key={persona.email}
+                    type="button"
+                    onClick={() => switchInstitutionalPersona(persona)}
+                    className="flex flex-col text-left p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-[#E6F6FF]/40 hover:border-[#00AEEF] transition-all cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800 group-hover:text-[#003B71] text-xs">
+                        {persona.name}
+                      </span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-hover:bg-[#003B71] group-hover:text-white transition-colors">
+                        {ROLE_LABELS[persona.role]}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                      {persona.email}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

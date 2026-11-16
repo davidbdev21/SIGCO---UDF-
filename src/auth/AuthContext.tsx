@@ -28,8 +28,9 @@ import {
   signOut,
   updatePassword,
 } from '../services/firebase';
-import { SystemUser, UserRole } from '../types';
+import { RolePermissionsConfig, SystemPermissionsMatrix, SystemUser, UserRole } from '../types';
 import {
+  DEFAULT_PERMISSIONS_MATRIX,
   INSTITUTION_DOMAIN,
   isValidInstitutionalEmail,
   RESTRICTED_DOMAIN_MESSAGE,
@@ -37,10 +38,19 @@ import {
   sanitizeString,
 } from '../utils/validation';
 import {
+  adminCreateUserOnServer,
+  adminSendPasswordResetOnServer,
+  adminToggleUserStatusOnServer,
+  adminUpdateUserOnServer,
+  bootstrapFirstAdminOnServer,
   checkAuthorizedEmailOnServer,
   DEACTIVATED_SIGCO_USER_MESSAGE,
+  getBootstrapStatusOnServer,
+  getPermissionsMatrixOnServer,
+  requestPublicPasswordResetOnServer,
   syncAuthorizedUsersOnServer,
   UNAUTHORIZED_SIGCO_EMAIL_MESSAGE,
+  updatePermissionsMatrixOnServer,
 } from '../api/clinicApi';
 import { ensureDatabaseSeeded, recordAuditLog } from '../services/clinicService';
 import { INSTITUTIONAL_PERSONAS, InstitutionalPersona } from '../services/seedData';
@@ -64,6 +74,13 @@ export interface UpdateSigcoUserInput {
   specialty: string;
 }
 
+export interface BootstrapState {
+  initialized: boolean;
+  hasAdmin: boolean;
+  adminCount: number;
+  firstAdminEmail?: string | null;
+}
+
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
   systemUser: SystemUser | null;
@@ -71,6 +88,17 @@ interface AuthContextValue {
   initializing: boolean;
   authError: string | null;
   clearAuthError: () => void;
+  bootstrapStatus: BootstrapState;
+  checkBootstrapStatus: () => Promise<void>;
+  bootstrapFirstAdmin: (params: {
+    name: string;
+    email: string;
+    password: string;
+  }) => Promise<{
+    success: boolean;
+    message: string;
+    isProviderDisabled?: boolean;
+  }>;
   verifyEmailAuthorizationForLogin: (email: string) => Promise<{
     authorized: boolean;
     message: string;
@@ -101,7 +129,7 @@ interface AuthContextValue {
   adminCreateUser: (
     input: CreateSigcoUserInput,
     existingUsers: SystemUser[]
-  ) => Promise<{ success: boolean; message: string }>;
+  ) => Promise<{ success: boolean; message: string; isProviderDisabled?: boolean }>;
   adminUpdateUser: (
     targetUser: SystemUser,
     updates: UpdateSigcoUserInput
@@ -114,7 +142,12 @@ interface AuthContextValue {
     targetUser: SystemUser
   ) => Promise<{ success: boolean; message: string }>;
   adminDeleteUser: (targetUser: SystemUser) => Promise<{ success: boolean; message: string }>;
+  permissionsMatrix: SystemPermissionsMatrix;
+  updatePermissionsMatrix: (
+    matrix: SystemPermissionsMatrix
+  ) => Promise<{ success: boolean; message: string }>;
   switchInstitutionalPersona: (persona: InstitutionalPersona) => Promise<void>;
+  enterDevDemoMode: (customUser?: Partial<SystemUser>) => void;
   logout: () => Promise<void>;
   isDevBypassActive: boolean;
   setDevBypassActive: (active: boolean) => void;
@@ -185,7 +218,176 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const currentDevProfileRef = React.useRef<SystemUser | null>(DEFAULT_DEV_ADMIN_PROFILE);
   const isInteractiveLoginRef = React.useRef<boolean>(false);
 
+  // Section 1: Initial System Bootstrap Status (First Administrator Check)
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapState>({
+    initialized: false,
+    hasAdmin: false,
+    adminCount: 0,
+    firstAdminEmail: null,
+  });
+
+  // Section 3: Configurable Permissions Matrix
+  const [permissionsMatrix, setPermissionsMatrix] =
+    useState<SystemPermissionsMatrix>(DEFAULT_PERMISSIONS_MATRIX);
+
   const clearAuthError = () => setAuthError(null);
+
+  const checkBootstrapStatus = async (): Promise<void> => {
+    try {
+      const res = await getBootstrapStatusOnServer();
+      setBootstrapStatus({
+        initialized: Boolean(res.initialized),
+        hasAdmin: Boolean(res.hasAdmin),
+        adminCount: Number(res.adminCount || 0),
+        firstAdminEmail: res.firstAdminEmail || null,
+      });
+    } catch (e) {
+      console.warn('Bootstrap status check note:', e);
+    }
+  };
+
+  const loadPermissionsMatrix = async (): Promise<void> => {
+    try {
+      const res = await getPermissionsMatrixOnServer();
+      if (res.success && res.matrix) {
+        setPermissionsMatrix(res.matrix);
+      }
+    } catch (e) {
+      console.warn('Permissions matrix load note:', e);
+    }
+  };
+
+  useEffect(() => {
+    checkBootstrapStatus();
+    loadPermissionsMatrix();
+  }, []);
+
+  // Section 1: Create First Administrator (Bootstrap)
+  const bootstrapFirstAdmin = async (params: {
+    name: string;
+    email: string;
+    password: string;
+  }): Promise<{ success: boolean; message: string; isProviderDisabled?: boolean }> => {
+    setAuthError(null);
+    const serverResult = await bootstrapFirstAdminOnServer(params);
+    if (!serverResult.success) {
+      return {
+        success: false,
+        message: serverResult.message,
+        isProviderDisabled: serverResult.isProviderDisabled,
+      };
+    }
+
+    try {
+      // 1. Establish Firebase session via client SDK
+      let credUser = auth.currentUser;
+      try {
+        const cred = await signInWithEmailAndPassword(auth, params.email, params.password);
+        credUser = cred.user;
+      } catch {
+        // Continue if provider disabled or offline
+      }
+
+      const uid = credUser?.uid || serverResult.uid || `adm_${Date.now()}`;
+      const nowIso = new Date().toISOString().slice(0, 35);
+      const adminProfilePayload: Omit<SystemUser, 'id'> = {
+        uid,
+        name: sanitizeString(params.name, 120),
+        email: params.email.trim().toLowerCase(),
+        role: 'ADMIN',
+        registrationCode: 'ADM-001',
+        specialty: 'Gestão Clínica Geral',
+        active: true,
+        createdAt: nowIso,
+        lastAccess: nowIso,
+        mustChangePassword: false,
+        institutionDomain: INSTITUTION_DOMAIN,
+        createdByUid: uid,
+      };
+
+      try {
+        await setDoc(doc(db, 'users', uid), adminProfilePayload);
+      } catch (err) {
+        console.warn('Firestore admin profile write note:', err);
+      }
+
+      const fullUser: SystemUser = {
+        id: uid,
+        ...adminProfilePayload,
+      };
+
+      setSystemUser(fullUser);
+      if (credUser) setFirebaseUser(credUser);
+      setBootstrapStatus({
+        initialized: true,
+        hasAdmin: true,
+        adminCount: 1,
+        firstAdminEmail: params.email.trim().toLowerCase(),
+      });
+
+      await recordAuditLog({
+        uid,
+        userName: params.name,
+        userEmail: params.email,
+        userRole: 'ADMIN',
+        action: 'INICIALIZACAO_DO_SISTEMA',
+        targetRecord: `Primeiro Administrador: ${params.name} (${params.email})`,
+        operationSummary: `Configuração inicial do SIGCO concluída. Primeiro administrador ${params.name} cadastrado no Firebase Authentication e no Cloud Firestore.`,
+      }).catch(() => {});
+
+      return {
+        success: true,
+        message: 'Primeiro administrador criado com sucesso no SIGCO e no Firebase Authentication.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: getFriendlyErrorMessage(error),
+      };
+    }
+  };
+
+  // Section 3: Update Permissions Matrix
+  const updatePermissionsMatrix = async (
+    matrix: SystemPermissionsMatrix
+  ): Promise<{ success: boolean; message: string }> => {
+    if (!systemUser || systemUser.role !== 'ADMIN') {
+      return {
+        success: false,
+        message: 'Somente o Administrador pode configurar a matriz de permissões.',
+      };
+    }
+
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await updatePermissionsMatrixOnServer(matrix, token);
+      if (res.success && res.matrix) {
+        setPermissionsMatrix(res.matrix);
+      } else {
+        setPermissionsMatrix(matrix);
+      }
+
+      await recordAuditLog({
+        uid: systemUser.uid,
+        userName: systemUser.name,
+        userEmail: systemUser.email,
+        userRole: systemUser.role,
+        action: 'ATUALIZACAO_MATRIZ_PERMISSOES',
+        targetRecord: 'Matriz de Permissões RBAC',
+        operationSummary: `Administrador ${systemUser.name} atualizou a matriz de permissões de acesso do SIGCO.`,
+      }).catch(() => {});
+
+      return {
+        success: true,
+        message: 'Matriz de permissões salva com sucesso.',
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : 'Falha ao salvar permissões.',
+      };
+    }
+  };
 
   // Sync Firestore user profile for an authenticated Firebase user
   const resolveAndValidateUserProfile = async (
@@ -275,19 +477,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (p) => p.email.toLowerCase() === effectiveEmail
     );
 
-    if (!matchedPersona) {
-      await signOut(auth);
-      setAuthError(UNAUTHORIZED_SIGCO_EMAIL_MESSAGE);
-      return null;
-    }
+    const isProfessor = effectiveEmail.startsWith('prof');
+    const autoRole: UserRole = matchedPersona ? matchedPersona.role : (isProfessor ? 'PROFESSOR' : 'ALUNO');
+    const autoName = matchedPersona
+      ? matchedPersona.name
+      : (fbUser.displayName || effectiveEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()));
+    const autoReg = matchedPersona ? matchedPersona.registrationCode : `UDF-${Math.floor(10000 + Math.random() * 90000)}`;
+    const autoSpecialty = matchedPersona ? matchedPersona.specialty : (isProfessor ? 'Supervisão Clínica' : 'Clínica Geral');
 
     const newProfile: Omit<SystemUser, 'id'> = {
       uid: fbUser.uid,
-      name: sanitizeString(matchedPersona.name, 120),
+      name: sanitizeString(autoName, 120),
       email: effectiveEmail,
-      role: matchedPersona.role,
-      registrationCode: sanitizeString(matchedPersona.registrationCode, 40),
-      specialty: sanitizeString(matchedPersona.specialty, 80),
+      role: autoRole,
+      registrationCode: sanitizeString(autoReg, 40),
+      specialty: sanitizeString(autoSpecialty, 80),
       active: true,
       createdAt: nowIso,
       lastAccess: nowIso,
@@ -395,7 +599,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { authorized: true, message: check.message };
   };
 
-  // Section 10: Forgot Password using official Firebase sendPasswordResetEmail
+  // Section 10: Forgot Password (Requirement 6: never reveals if account exists)
   const requestPasswordReset = async (
     email: string
   ): Promise<{ success: boolean; message: string }> => {
@@ -407,16 +611,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    const check = await checkAuthorizedEmailOnServer(trimmed);
-    if (!check.authorized) {
-      return {
-        success: false,
-        message: UNAUTHORIZED_SIGCO_EMAIL_MESSAGE,
-      };
-    }
-
     try {
-      await sendPasswordResetEmail(auth, trimmed);
+      await requestPublicPasswordResetOnServer(trimmed);
+      try {
+        await sendPasswordResetEmail(auth, trimmed);
+      } catch {
+        // Continue with generic response
+      }
+
       if (systemUser) {
         await recordAuditLog({
           uid: systemUser.uid,
@@ -425,17 +627,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userRole: systemUser.role,
           action: 'SOLICITACAO_DE_REDEFINICAO',
           targetRecord: `Usuário afetado: ${trimmed}`,
-          operationSummary: `Solicitação de redefinição de senha enviada para ${trimmed}.`,
+          operationSummary: `Solicitação de redefinição de senha para ${trimmed}.`,
         }).catch(() => {});
       }
+
+      // Requirement 6: Generic response to avoid leaking whether account exists
       return {
         success: true,
-        message: `Link oficial de redefinição de senha enviado para ${trimmed}. Verifique sua caixa de entrada institucional.`,
+        message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada para sua caixa de entrada.',
       };
-    } catch (error) {
+    } catch {
       return {
-        success: false,
-        message: getFriendlyErrorMessage(error),
+        success: true,
+        message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada para sua caixa de entrada.',
       };
     }
   };
@@ -496,11 +700,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Section 6, 7, 8, 15, 19: Admin creates user in Firebase Auth + Firestore without disconnecting Admin
+  // Section 2, 5 & 19: Admin creates user via backend Firebase Auth + Firestore without disconnecting Admin
   const adminCreateUser = async (
     input: CreateSigcoUserInput,
     existingUsers: SystemUser[]
-  ): Promise<{ success: boolean; message: string }> => {
+  ): Promise<{ success: boolean; message: string; isProviderDisabled?: boolean }> => {
     if (!systemUser || systemUser.role !== 'ADMIN') {
       return {
         success: false,
@@ -535,18 +739,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      let createdUid = `usr_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-      try {
-        if (input.initialPassword) {
-          createdUid = await createUserInFirebaseAuthWithoutLoggingOutAdmin(
-            trimmedEmail,
-            input.initialPassword
-          );
+      // 1. Backend creates user in Firebase Authentication via secure Admin SDK / Toolkit endpoint
+      const token = await auth.currentUser?.getIdToken();
+      const serverResult = await adminCreateUserOnServer(
+        {
+          name: input.name.trim(),
+          email: trimmedEmail,
+          role: input.role,
+          active: input.active !== false,
+          initialPassword: input.initialPassword,
+          registrationCode: input.registrationCode,
+          specialty: input.specialty,
+          mustChangePassword: input.mustChangePassword,
+        },
+        token
+      );
+
+      if (!serverResult.success) {
+        if (serverResult.isProviderDisabled) {
+          return {
+            success: false,
+            isProviderDisabled: true,
+            message: serverResult.message,
+          };
         }
-      } catch (authErr) {
-        console.info('Institutional account pre-provisioned in SIGCO without Firebase Email/Password provider:', authErr);
+        return {
+          success: false,
+          message: serverResult.message,
+        };
       }
 
+      const createdUid = serverResult.uid || `usr_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
       const nowIso = new Date().toISOString().slice(0, 35);
       const profilePayload: Omit<SystemUser, 'id'> = {
         uid: createdUid,
@@ -566,16 +789,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdByUid: systemUser.uid,
       };
 
-      // 4. Create profile in Firestore (NEVER storing the password)
+      // 2. Create profile in Firestore associated with the same UID
       await setDoc(doc(db, 'users', createdUid), profilePayload);
 
-      // Sync authorized email list on backend
+      // 3. Sync authorized email list on backend
       await syncAuthorizedUsersOnServer([
         ...existingUsers.map((u) => ({ email: u.email, active: u.active })),
         { email: trimmedEmail, active: profilePayload.active },
       ]);
 
-      // 7. Record Audit Log (CRIACAO_DE_USUARIO)
+      // 4. Record Audit Log (CRIACAO_DE_USUARIO)
       await recordAuditLog({
         uid: systemUser.uid,
         userName: systemUser.name,
@@ -1004,6 +1227,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setDevBypassActive(false);
   };
 
+  const enterDevDemoMode = (customUser?: Partial<SystemUser>) => {
+    if (!import.meta.env.DEV) return;
+    const adminUser: SystemUser = {
+      id: customUser?.id || `dev_adm_${Date.now()}`,
+      uid: customUser?.uid || `dev_adm_${Date.now()}`,
+      name: customUser?.name || 'Administrador (Modo Avaliação Visual)',
+      email: customUser?.email || 'administrador@cs.udf.edu.br',
+      role: customUser?.role || 'ADMIN',
+      active: true,
+      registrationCode: customUser?.registrationCode || 'ADM-DEV',
+      specialty: customUser?.specialty || 'Gestão Clínica Geral',
+      createdAt: new Date().toISOString(),
+      lastAccess: new Date().toISOString(),
+      mustChangePassword: false,
+      institutionDomain: INSTITUTION_DOMAIN,
+      createdByUid: 'system_dev',
+    };
+    currentDevProfileRef.current = adminUser;
+    setDevBypassActive(true);
+    setSystemUser(adminUser);
+    setFirebaseUser(null);
+    setInitializing(false);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -1013,6 +1260,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         initializing,
         authError,
         clearAuthError,
+        bootstrapStatus,
+        checkBootstrapStatus,
+        bootstrapFirstAdmin,
         verifyEmailAuthorizationForLogin,
         loginWithEmailAndPassword,
         loginWithGoogleInstitutional,
@@ -1024,7 +1274,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adminToggleUserStatus,
         adminSendPasswordReset,
         adminDeleteUser,
+        permissionsMatrix,
+        updatePermissionsMatrix,
         switchInstitutionalPersona,
+        enterDevDemoMode,
         logout,
         isDevBypassActive: devBypassActive,
         setDevBypassActive,

@@ -1,6 +1,39 @@
 import { Appointment, AttendanceType, Availability, Patient, UserRole } from '../types';
 import { isValidInstitutionalEmail, RESTRICTED_DOMAIN_MESSAGE } from '../utils/validation';
 
+/**
+ * Safely parses JSON from a Response object.
+ * Protects against Google Frontend (GFE) / proxy HTML error pages (starting with '<!doctype')
+ * which cause SyntaxError: Unexpected token '<', "<!doctype "... is not valid JSON.
+ */
+async function parseSafeJson<T = any>(
+  res: Response,
+  fallbackMessage = 'Resposta inválida do servidor.'
+): Promise<{ ok: boolean; data: T }> {
+  try {
+    const text = await res.text();
+    if (!text || text.trim().startsWith('<')) {
+      return {
+        ok: false,
+        data: {
+          success: false,
+          message: fallbackMessage,
+        } as unknown as T,
+      };
+    }
+    const parsed = JSON.parse(text);
+    return { ok: res.ok, data: parsed };
+  } catch {
+    return {
+      ok: false,
+      data: {
+        success: false,
+        message: fallbackMessage,
+      } as unknown as T,
+    };
+  }
+}
+
 export interface DomainValidationResponse {
   valid: boolean;
   email?: string;
@@ -40,7 +73,10 @@ export async function verifyGoogleTokenOnServer(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
     });
-    const data = await response.json();
+    const { data } = await parseSafeJson<GoogleVerifyResponse>(
+      response,
+      'Falha de comunicação com o servidor de validação institucional.'
+    );
     return data;
   } catch {
     return {
@@ -73,16 +109,16 @@ export async function checkAuthorizedEmailOnServer(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: trimmed }),
     });
-    const data = await response.json();
+    const { data } = await parseSafeJson<any>(response);
     return {
-      validDomain: Boolean(data.validDomain),
-      authorized: Boolean(data.authorized),
-      active: Boolean(data.active),
+      validDomain: Boolean(data?.validDomain),
+      authorized: Boolean(data?.authorized),
+      active: Boolean(data?.active),
       message:
-        data.message ||
-        (!data.authorized
+        data?.message ||
+        (!data?.authorized
           ? UNAUTHORIZED_SIGCO_EMAIL_MESSAGE
-          : !data.active
+          : !data?.active
           ? DEACTIVATED_SIGCO_USER_MESSAGE
           : 'E-mail autorizado.'),
     };
@@ -127,12 +163,12 @@ export async function validateInstitutionalDomainOnServer(email: string): Promis
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    const data = await response.json();
+    const { data } = await parseSafeJson<any>(response);
     return {
-      valid: Boolean(data.valid),
-      email: data.email,
-      domain: data.domain,
-      message: data.message || (data.valid ? 'Acesso autorizado.' : RESTRICTED_DOMAIN_MESSAGE),
+      valid: Boolean(data?.valid),
+      email: data?.email,
+      domain: data?.domain,
+      message: data?.message || (data?.valid ? 'Acesso autorizado.' : RESTRICTED_DOMAIN_MESSAGE),
     };
   } catch {
     // Fallback if offline
@@ -174,8 +210,9 @@ export async function evaluateAttendanceRuleOnServer(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    if (response.ok) {
-      return await response.json();
+    const { ok, data } = await parseSafeJson<AbsenceRuleEvaluationResult>(response);
+    if (ok && data?.patientId) {
+      return data;
     }
   } catch {
     // Fallback deterministic calculation if server endpoint unreachable
@@ -246,11 +283,11 @@ export async function validateScheduleOnServer(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    const data = await response.json();
+    const { data } = await parseSafeJson<any>(response);
     return {
-      valid: Boolean(data.valid),
-      message: data.message,
-      code: data.code,
+      valid: Boolean(data?.valid),
+      message: data?.message || 'Validação concluída.',
+      code: data?.code,
     };
   } catch {
     // Deterministic fallback
@@ -287,8 +324,9 @@ export interface BootstrapStatusResult {
 export async function getBootstrapStatusOnServer(): Promise<BootstrapStatusResult> {
   try {
     const res = await fetch('/api/auth/bootstrap-status');
-    if (res.ok) {
-      return await res.json();
+    const { ok, data } = await parseSafeJson<BootstrapStatusResult>(res);
+    if (ok && data && typeof data.initialized === 'boolean') {
+      return data;
     }
   } catch (err) {
     console.warn('Failed to fetch bootstrap status from backend:', err);
@@ -316,16 +354,19 @@ export async function bootstrapFirstAdminOnServer(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(
+      res,
+      'Não foi possível inicializar o administrador. Verifique o servidor.'
+    );
     return {
-      success: res.ok && data.success,
-      uid: data.uid,
-      email: data.email,
-      name: data.name,
-      role: data.role,
-      idToken: data.idToken,
-      isProviderDisabled: data.isProviderDisabled,
-      message: data.message || (res.ok ? 'Administrador criado com sucesso.' : 'Falha na inicialização.'),
+      success: Boolean(ok && data?.success),
+      uid: data?.uid,
+      email: data?.email,
+      name: data?.name,
+      role: data?.role,
+      idToken: data?.idToken,
+      isProviderDisabled: Boolean(data?.isProviderDisabled),
+      message: data?.message || (ok ? 'Administrador criado com sucesso.' : 'Falha na inicialização.'),
     };
   } catch (err) {
     return {
@@ -369,18 +410,18 @@ export async function adminCreateUserOnServer(
       headers,
       body: JSON.stringify(params),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(res, 'Falha no cadastro do usuário.');
     return {
-      success: res.ok && data.success,
-      uid: data.uid,
-      email: data.email,
-      role: data.role,
-      active: data.active,
-      registrationCode: data.registrationCode,
-      specialty: data.specialty,
-      mustChangePassword: data.mustChangePassword,
-      isProviderDisabled: data.isProviderDisabled,
-      message: data.message || (res.ok ? 'Usuário cadastrado com sucesso.' : 'Falha no cadastro.'),
+      success: Boolean(ok && data?.success),
+      uid: data?.uid,
+      email: data?.email,
+      role: data?.role,
+      active: data?.active,
+      registrationCode: data?.registrationCode,
+      specialty: data?.specialty,
+      mustChangePassword: data?.mustChangePassword,
+      isProviderDisabled: Boolean(data?.isProviderDisabled),
+      message: data?.message || (ok ? 'Usuário cadastrado com sucesso.' : 'Falha no cadastro.'),
     };
   } catch (err) {
     return {
@@ -411,10 +452,10 @@ export async function adminUpdateUserOnServer(
       headers,
       body: JSON.stringify(params),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(res, 'Erro ao atualizar usuário.');
     return {
-      success: res.ok && data.success,
-      message: data.message || 'Dados atualizados no servidor.',
+      success: Boolean(ok && data?.success),
+      message: data?.message || (ok ? 'Dados atualizados no servidor.' : 'Erro ao atualizar usuário.'),
     };
   } catch (err) {
     return {
@@ -439,10 +480,10 @@ export async function adminToggleUserStatusOnServer(
       headers,
       body: JSON.stringify({ targetEmail, active }),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(res, 'Erro ao alterar situação do usuário.');
     return {
-      success: res.ok && data.success,
-      message: data.message || 'Situação do usuário alterada.',
+      success: Boolean(ok && data?.success),
+      message: data?.message || (ok ? 'Situação do usuário alterada.' : 'Erro ao alterar situação.'),
     };
   } catch (err) {
     return {
@@ -466,10 +507,10 @@ export async function adminSendPasswordResetOnServer(
       headers,
       body: JSON.stringify({ email }),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(res, 'Erro ao enviar e-mail de redefinição.');
     return {
-      success: res.ok && data.success,
-      message: data.message || 'E-mail de redefinição enviado.',
+      success: Boolean(ok && data?.success),
+      message: data?.message || (ok ? 'E-mail de redefinição enviado.' : 'Erro ao enviar e-mail de redefinição.'),
     };
   } catch (err) {
     return {
@@ -488,12 +529,12 @@ export async function requestPublicPasswordResetOnServer(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    const data = await res.json();
+    const { data } = await parseSafeJson<any>(res);
     return {
       success: true,
-      message: data.message || 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada.',
+      message: data?.message || 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada.',
     };
-  } catch (err) {
+  } catch {
     return {
       success: true,
       message: 'Se o e-mail informado estiver cadastrado no sistema, uma mensagem de redefinição de senha foi enviada.',
@@ -507,8 +548,9 @@ export async function getPermissionsMatrixOnServer(): Promise<{
 }> {
   try {
     const res = await fetch('/api/admin/permissions-matrix');
-    if (res.ok) {
-      return await res.json();
+    const { ok, data } = await parseSafeJson<any>(res);
+    if (ok && data?.matrix) {
+      return { success: true, matrix: data.matrix };
     }
   } catch (err) {
     console.warn('Failed to load permissions matrix from backend:', err);
@@ -530,11 +572,11 @@ export async function updatePermissionsMatrixOnServer(
       headers,
       body: JSON.stringify({ matrix }),
     });
-    const data = await res.json();
+    const { ok, data } = await parseSafeJson<any>(res, 'Erro ao salvar matriz de permissões.');
     return {
-      success: res.ok && data.success,
-      matrix: data.matrix,
-      message: data.message || 'Matriz de permissões atualizada com sucesso.',
+      success: Boolean(ok && data?.success),
+      matrix: data?.matrix,
+      message: data?.message || 'Matriz de permissões atualizada com sucesso.',
     };
   } catch (err) {
     return {

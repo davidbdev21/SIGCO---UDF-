@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -16,18 +16,25 @@ import {
   Eye,
   EyeOff,
   ShieldAlert,
+  Users,
+  CheckSquare,
+  Square,
+  RotateCcw,
+  Save,
+  Shield,
 } from 'lucide-react';
 import { doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db, getFriendlyErrorMessage } from '../services/firebase';
 import { useClinicData } from '../hooks/useClinicData';
 import { useAuth, validateSigcoPasswordStrength } from '../auth/AuthContext';
-import { SystemUser, UserRole } from '../types';
+import { SystemUser, UserRole, SystemPermissionsMatrix, NavigationTab, RolePermissionsConfig } from '../types';
 import {
   INITIAL_SPECIALTIES,
   INSTITUTION_DOMAIN,
   isValidInstitutionalEmail,
   RESTRICTED_DOMAIN_MESSAGE,
   ROLE_LABELS,
+  DEFAULT_PERMISSIONS_MATRIX,
   sanitizeId,
   sanitizeString,
 } from '../utils/validation';
@@ -38,6 +45,32 @@ interface SystemAdminPageProps {
   mode: 'users' | 'settings' | 'audit';
 }
 
+const ALL_NAVIGATION_TABS: { id: NavigationTab; label: string; desc: string }[] = [
+  { id: 'dashboard', label: 'Painel Geral', desc: 'Métricas e resumo operacional' },
+  { id: 'patients', label: 'Pacientes', desc: 'Cadastro e busca de pacientes' },
+  { id: 'screening', label: 'Triagem Odontológica', desc: 'Classificação de risco e prioridade' },
+  { id: 'schedule', label: 'Agenda Clínica', desc: 'Agendamentos e confirmações' },
+  { id: 'medical_records', label: 'Prontuário Eletrônico', desc: 'Evoluções e anamnese clínica' },
+  { id: 'odontogram', label: 'Odontograma', desc: 'Mapa dentário e condições' },
+  { id: 'referrals', label: 'Encaminhamentos', desc: 'Encaminhamentos entre especialidades' },
+  { id: 'students', label: 'Alunos', desc: 'Gestão acadêmica dos discentes' },
+  { id: 'professors', label: 'Professores', desc: 'Corpo docente e supervisores' },
+  { id: 'clinics_specialties', label: 'Clínicas / Especialidades', desc: 'Configuração dos setores' },
+  { id: 'reports', label: 'Relatórios', desc: 'Exportação e estatísticas clínicas' },
+  { id: 'users', label: 'Usuários', desc: 'Gerenciamento de usuários e senhas' },
+  { id: 'settings', label: 'Configurações', desc: 'Preferências do sistema' },
+  { id: 'audit', label: 'Auditoria', desc: 'Trilha imutável de logs (RN08)' },
+  { id: 'help', label: 'Ajuda', desc: 'Guia do usuário e documentação' },
+];
+
+const ALL_ROLES: { role: UserRole; title: string; subtitle: string }[] = [
+  { role: 'ADMIN', title: 'Administrador', subtitle: 'Acesso pleno irrestrito e gestão de usuários' },
+  { role: 'RECEPCAO', title: 'Recepção', subtitle: 'Agendamentos, lista de espera e confirmações' },
+  { role: 'TRIAGEM', title: 'Dentista de Triagem', subtitle: 'Classificação de risco, encaminhamentos e priorização' },
+  { role: 'PROFESSOR', title: 'Professor / Supervisor', subtitle: 'Supervisão clínica, validação e relatórios' },
+  { role: 'ALUNO', title: 'Aluno de Odontologia', subtitle: 'Atendimento clínico com restrição ao seu escopo' },
+];
+
 export const SystemAdminPage: React.FC<SystemAdminPageProps> = ({ mode }) => {
   const {
     systemUser,
@@ -47,12 +80,33 @@ export const SystemAdminPage: React.FC<SystemAdminPageProps> = ({ mode }) => {
     adminSendPasswordReset,
     adminDeleteUser,
     changeOwnPassword,
+    permissionsMatrix,
+    updatePermissionsMatrix,
   } = useAuth();
   const { users, auditLogs, patients } = useClinicData();
 
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
     null
   );
+
+  // Subtab for User Management: List vs Permissions Matrix
+  const [usersSubTab, setUsersSubTab] = useState<'list' | 'permissions'>('list');
+  const [draftMatrix, setDraftMatrix] = useState<SystemPermissionsMatrix>(permissionsMatrix);
+  const [savingMatrix, setSavingMatrix] = useState(false);
+
+  useEffect(() => {
+    if (permissionsMatrix) {
+      setDraftMatrix(permissionsMatrix);
+    }
+  }, [permissionsMatrix]);
+
+  // Section 7 / Section 20: User Counters
+  const userMetrics = useMemo(() => {
+    const total = users.length;
+    const active = users.filter((u) => u.active !== false).length;
+    const inactive = users.filter((u) => u.active === false).length;
+    return { total, active, inactive };
+  }, [users]);
 
   // Modals
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
@@ -282,6 +336,77 @@ export const SystemAdminPage: React.FC<SystemAdminPageProps> = ({ mode }) => {
     }
   };
 
+  const handleToggleTabPermission = (role: UserRole, tabId: NavigationTab) => {
+    if (role === 'ADMIN') return;
+    setDraftMatrix((prev) => {
+      const current = prev[role] || DEFAULT_PERMISSIONS_MATRIX[role];
+      const hasTab = current.allowedTabs.includes(tabId);
+      const newTabs = hasTab
+        ? current.allowedTabs.filter((t) => t !== tabId)
+        : [...current.allowedTabs, tabId];
+      return {
+        ...prev,
+        [role]: {
+          ...current,
+          allowedTabs: newTabs,
+        },
+      };
+    });
+  };
+
+  const handleToggleActionPermission = (
+    role: UserRole,
+    field: keyof Omit<RolePermissionsConfig, 'allowedTabs'>
+  ) => {
+    if (role === 'ADMIN') return;
+    setDraftMatrix((prev) => {
+      const current = prev[role] || DEFAULT_PERMISSIONS_MATRIX[role];
+      return {
+        ...prev,
+        [role]: {
+          ...current,
+          [field]: !current[field],
+        },
+      };
+    });
+  };
+
+  const handleSavePermissions = async () => {
+    setSavingMatrix(true);
+    const matrixToSave: SystemPermissionsMatrix = {
+      ...draftMatrix,
+      ADMIN: {
+        allowedTabs: ALL_NAVIGATION_TABS.map((t) => t.id),
+        canConsultRecords: true,
+        canCreateRecords: true,
+        canEditRecords: true,
+        canDeleteRecords: true,
+        canExecuteAdminActions: true,
+      },
+    };
+    const res = await updatePermissionsMatrix(matrixToSave);
+    setSavingMatrix(false);
+    setFeedback({
+      type: res.success ? 'success' : 'error',
+      message: res.message,
+    });
+  };
+
+  const handleResetPermissionsToDefault = async () => {
+    setSavingMatrix(true);
+    const res = await updatePermissionsMatrix(DEFAULT_PERMISSIONS_MATRIX);
+    setSavingMatrix(false);
+    if (res.success) {
+      setDraftMatrix(DEFAULT_PERMISSIONS_MATRIX);
+    }
+    setFeedback({
+      type: res.success ? 'success' : 'error',
+      message: res.success
+        ? 'Matriz de permissões restaurada para os padrões oficiais da UDF.'
+        : res.message,
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -358,7 +483,82 @@ export const SystemAdminPage: React.FC<SystemAdminPageProps> = ({ mode }) => {
 
       {/* USERS VIEW — Complete Section 20 implementation */}
       {mode === 'users' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* Section 20 & Section 7: Counters (Total, Ativos, Desativados) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wider">
+                  Total de Usuários
+                </p>
+                <p className="text-2xl font-bold text-[#003366] mt-1">{userMetrics.total}</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Cadastrados no SIGCO</p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-[#E6F6FF] text-[#003366] flex items-center justify-center">
+                <Users className="w-5 h-5 text-[#00AEEF]" />
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">
+                  Usuários Ativos
+                </p>
+                <p className="text-2xl font-bold text-emerald-600 mt-1">{userMetrics.active}</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Com acesso liberado</p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <UserCheck className="w-5 h-5 text-emerald-600" />
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">
+                  Usuários Desativados
+                </p>
+                <p className="text-2xl font-bold text-amber-600 mt-1">{userMetrics.inactive}</p>
+                <p className="text-[11px] text-[#64748B] mt-0.5">Acesso suspenso</p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <UserX className="w-5 h-5 text-amber-600" />
+              </div>
+            </div>
+          </div>
+
+          {/* Subtab Navigation (Usuários Cadastrados / Matriz de Permissões) */}
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+            <button
+              type="button"
+              onClick={() => setUsersSubTab('list')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+                usersSubTab === 'list'
+                  ? 'bg-[#003366] text-white shadow-2xs'
+                  : 'bg-white text-[#64748B] hover:text-[#003366] border border-slate-200'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Usuários Cadastrados ({userMetrics.total})</span>
+            </button>
+
+            {systemUser.role === 'ADMIN' && (
+              <button
+                type="button"
+                onClick={() => setUsersSubTab('permissions')}
+                className={`px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+                  usersSubTab === 'permissions'
+                    ? 'bg-[#003366] text-white shadow-2xs'
+                    : 'bg-white text-[#64748B] hover:text-[#003366] border border-slate-200'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Matriz de Permissões</span>
+              </button>
+            )}
+          </div>
+
+          {usersSubTab === 'list' && (
+            <div className="space-y-4">
           {/* Search & Filter Bar (Section 20) */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-2xs">
             <div className="relative flex-1">
@@ -535,6 +735,218 @@ export const SystemAdminPage: React.FC<SystemAdminPageProps> = ({ mode }) => {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Permissions Matrix Tab (Section 3) */}
+      {usersSubTab === 'permissions' && systemUser.role === 'ADMIN' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs">
+            <div>
+              <h2 className="text-base font-bold text-[#003366] flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#00AEEF]" />
+                <span>Matriz de Controle de Acesso e Permissões (RBAC)</span>
+              </h2>
+              <p className="text-xs text-[#64748B] mt-1 max-w-2xl">
+                Configure os módulos visíveis e as permissões de prontuário para cada perfil institucional. O perfil <strong>Administrador</strong> possui acesso total irrevogável para garantir a governança do SIGCO.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetPermissionsToDefault}
+                disabled={savingMatrix}
+                className="px-3.5 py-2 text-xs font-semibold text-[#003366] bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restaurar Padrões</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePermissions}
+                disabled={savingMatrix}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#00AEEF] hover:bg-[#007BFF] rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{savingMatrix ? 'Salvando...' : 'Salvar Matriz'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Roles matrix list */}
+          <div className="space-y-6">
+            {ALL_ROLES.map(({ role, title, subtitle }) => {
+              const isAdminRole = role === 'ADMIN';
+              const roleConfig = draftMatrix[role] || DEFAULT_PERMISSIONS_MATRIX[role];
+              return (
+                <div
+                  key={role}
+                  className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs space-y-4"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-[#003366]">{title}</span>
+                        <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 text-[#003366] font-semibold">
+                          {role}
+                        </span>
+                        {isAdminRole && (
+                          <span className="text-[10px] bg-[#E6F6FF] text-[#007BFF] px-2 py-0.5 rounded-full font-bold border border-[#00AEEF]/30">
+                            Total Irrevogável
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[#64748B] mt-0.5">{subtitle}</p>
+                    </div>
+                  </div>
+
+                  {/* Section 1: Allowed Tabs */}
+                  <div>
+                    <h4 className="text-xs font-bold text-[#003366] uppercase tracking-wider mb-2.5">
+                      1. Módulos Visíveis na Navegação
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                      {ALL_NAVIGATION_TABS.map((tab) => {
+                        const isChecked = isAdminRole || roleConfig.allowedTabs.includes(tab.id);
+                        return (
+                          <label
+                            key={tab.id}
+                            className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                              isChecked
+                                ? 'bg-[#E6F6FF]/40 border-[#00AEEF]/40 text-[#003366]'
+                                : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                            } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-[#00AEEF]'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={isAdminRole}
+                              checked={isChecked}
+                              onChange={() => handleToggleTabPermission(role, tab.id)}
+                              className="mt-0.5 accent-[#00AEEF] rounded w-3.5 h-3.5"
+                            />
+                            <div>
+                              <div className="font-semibold">{tab.label}</div>
+                              <div className="text-[10px] text-[#64748B]">{tab.desc}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Section 2: Actions & Permissions */}
+                  <div>
+                    <h4 className="text-xs font-bold text-[#003366] uppercase tracking-wider mb-2.5">
+                      2. Permissões de Ação no Prontuário e Sistema
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                          isAdminRole || roleConfig.canConsultRecords
+                            ? 'bg-emerald-50/50 border-emerald-300 text-emerald-900'
+                            : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                        } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-emerald-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isAdminRole}
+                          checked={isAdminRole || roleConfig.canConsultRecords}
+                          onChange={() => handleToggleActionPermission(role, 'canConsultRecords')}
+                          className="mt-0.5 accent-emerald-600 rounded w-3.5 h-3.5"
+                        />
+                        <div>
+                          <div className="font-semibold">Consultar Registros</div>
+                          <div className="text-[10px] text-[#64748B]">Visualizar prontuários</div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                          isAdminRole || roleConfig.canCreateRecords
+                            ? 'bg-emerald-50/50 border-emerald-300 text-emerald-900'
+                            : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                        } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-emerald-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isAdminRole}
+                          checked={isAdminRole || roleConfig.canCreateRecords}
+                          onChange={() => handleToggleActionPermission(role, 'canCreateRecords')}
+                          className="mt-0.5 accent-emerald-600 rounded w-3.5 h-3.5"
+                        />
+                        <div>
+                          <div className="font-semibold">Criar Registros</div>
+                          <div className="text-[10px] text-[#64748B]">Inserir evoluções/pacientes</div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                          isAdminRole || roleConfig.canEditRecords
+                            ? 'bg-emerald-50/50 border-emerald-300 text-emerald-900'
+                            : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                        } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-emerald-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isAdminRole}
+                          checked={isAdminRole || roleConfig.canEditRecords}
+                          onChange={() => handleToggleActionPermission(role, 'canEditRecords')}
+                          className="mt-0.5 accent-emerald-600 rounded w-3.5 h-3.5"
+                        />
+                        <div>
+                          <div className="font-semibold">Editar Registros</div>
+                          <div className="text-[10px] text-[#64748B]">Alterar cadastros e planos</div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                          isAdminRole || roleConfig.canDeleteRecords
+                            ? 'bg-rose-50/50 border-rose-300 text-rose-900'
+                            : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                        } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-rose-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isAdminRole}
+                          checked={isAdminRole || roleConfig.canDeleteRecords}
+                          onChange={() => handleToggleActionPermission(role, 'canDeleteRecords')}
+                          className="mt-0.5 accent-rose-600 rounded w-3.5 h-3.5"
+                        />
+                        <div>
+                          <div className="font-semibold">Excluir Registros</div>
+                          <div className="text-[10px] text-[#64748B]">Remover dados do sistema</div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs transition-colors ${
+                          isAdminRole || roleConfig.canExecuteAdminActions
+                            ? 'bg-sky-50/50 border-sky-300 text-sky-900'
+                            : 'bg-[#F8FAFC] border-slate-200 text-[#64748B]'
+                        } ${isAdminRole ? 'cursor-default opacity-85' : 'cursor-pointer hover:border-sky-400'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isAdminRole}
+                          checked={isAdminRole || roleConfig.canExecuteAdminActions}
+                          onChange={() => handleToggleActionPermission(role, 'canExecuteAdminActions')}
+                          className="mt-0.5 accent-sky-600 rounded w-3.5 h-3.5"
+                        />
+                        <div>
+                          <div className="font-semibold">Ações Administrativas</div>
+                          <div className="text-[10px] text-[#64748B]">Gestão e parametrização</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
         </div>
       )}
 

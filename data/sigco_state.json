@@ -1,0 +1,99 @@
+{
+  "initialized": false,
+  "firstAdmin": null,
+  "permissionsMatrix": {
+    "ADMIN": {
+      "allowedTabs": [
+        "dashboard",
+        "patients",
+        "screening",
+        "schedule",
+        "medical_records",
+        "odontogram",
+        "referrals",
+        "students",
+        "professors",
+        "clinics_specialties",
+        "reports",
+        "users",
+        "settings",
+        "audit",
+        "help"
+      ],
+      "canConsultRecords": true,
+      "canCreateRecords": true,
+      "canEditRecords": true,
+      "canDeleteRecords": true,
+      "canExecuteAdminActions": true
+    },
+    "RECEPCAO": {
+      "allowedTabs": [
+        "dashboard",
+        "patients",
+        "schedule",
+        "settings",
+        "help"
+      ],
+      "canConsultRecords": true,
+      "canCreateRecords": true,
+      "canEditRecords": true,
+      "canDeleteRecords": false,
+      "canExecuteAdminActions": false
+    },
+    "TRIAGEM": {
+      "allowedTabs": [
+        "dashboard",
+        "patients",
+        "screening",
+        "medical_records",
+        "odontogram",
+        "referrals",
+        "settings",
+        "help"
+      ],
+      "canConsultRecords": true,
+      "canCreateRecords": true,
+      "canEditRecords": true,
+      "canDeleteRecords": false,
+      "canExecuteAdminActions": false
+    },
+    "PROFESSOR": {
+      "allowedTabs": [
+        "dashboard",
+        "patients",
+        "schedule",
+        "medical_records",
+        "odontogram",
+        "referrals",
+        "students",
+        "professors",
+        "clinics_specialties",
+        "reports",
+        "settings",
+        "help"
+      ],
+      "canConsultRecords": true,
+      "canCreateRecords": true,
+      "canEditRecords": true,
+      "canDeleteRecords": false,
+      "canExecuteAdminActions": false
+    },
+    "ALUNO": {
+      "allowedTabs": [
+        "dashboard",
+        "patients",
+        "schedule",
+        "medical_records",
+        "odontogram",
+        "referrals",
+        "settings",
+        "help"
+      ],
+      "canConsultRecords": true,
+      "canCreateRecords": true,
+      "canEditRecords": true,
+      "canDeleteRecords": false,
+      "canExecuteAdminActions": false
+    }
+  }
+}
