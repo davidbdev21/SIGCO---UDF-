@@ -217,6 +217,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [devBypassActive, setDevBypassActive] = useState<boolean>(false);
   const currentDevProfileRef = React.useRef<SystemUser | null>(DEFAULT_DEV_ADMIN_PROFILE);
   const isInteractiveLoginRef = React.useRef<boolean>(false);
+  const lastAuthFailureReasonRef = React.useRef<string | null>(null);
 
   // Section 1: Initial System Bootstrap Status (First Administrator Check)
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapState>({
@@ -399,6 +400,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!isValidInstitutionalEmail(effectiveEmail)) {
       await signOut(auth);
+      lastAuthFailureReasonRef.current = RESTRICTED_DOMAIN_MESSAGE;
       setAuthError(RESTRICTED_DOMAIN_MESSAGE);
       return null;
     }
@@ -413,6 +415,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Section 17: Active User Control — deny access if active === false
       if (data.active === false) {
         await signOut(auth);
+        lastAuthFailureReasonRef.current = DEACTIVATED_SIGCO_USER_MESSAGE;
         setAuthError(DEACTIVATED_SIGCO_USER_MESSAGE);
         return null;
       }
@@ -421,6 +424,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastAccess: nowIso,
       }).catch(() => {});
 
+      lastAuthFailureReasonRef.current = null;
       return {
         id: fbUser.uid,
         ...data,
@@ -442,6 +446,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const existingData = matchedDoc.data() as Omit<SystemUser, 'id'>;
       if (existingData.active === false) {
         await signOut(auth);
+        lastAuthFailureReasonRef.current = DEACTIVATED_SIGCO_USER_MESSAGE;
         setAuthError(DEACTIVATED_SIGCO_USER_MESSAGE);
         return null;
       }
@@ -466,6 +471,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await deleteDoc(doc(db, 'users', matchedDoc.id)).catch(() => {});
       }
 
+      lastAuthFailureReasonRef.current = null;
       return {
         id: fbUser.uid,
         ...migratedProfile,
@@ -479,15 +485,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const isProfessor = effectiveEmail.startsWith('prof');
     const autoRole: UserRole = matchedPersona ? matchedPersona.role : (isProfessor ? 'PROFESSOR' : 'ALUNO');
-    const autoName = matchedPersona
+    const rawAutoName = matchedPersona
       ? matchedPersona.name
       : (fbUser.displayName || effectiveEmail.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()));
+    const safeAutoName = rawAutoName.trim().length >= 2 ? rawAutoName.trim() : `${rawAutoName.trim()} UDF`;
     const autoReg = matchedPersona ? matchedPersona.registrationCode : `UDF-${Math.floor(10000 + Math.random() * 90000)}`;
     const autoSpecialty = matchedPersona ? matchedPersona.specialty : (isProfessor ? 'Supervisão Clínica' : 'Clínica Geral');
 
     const newProfile: Omit<SystemUser, 'id'> = {
       uid: fbUser.uid,
-      name: sanitizeString(autoName, 120),
+      name: sanitizeString(safeAutoName, 120),
       email: effectiveEmail,
       role: autoRole,
       registrationCode: sanitizeString(autoReg, 40),
@@ -501,6 +508,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     await setDoc(userDocRef, newProfile);
+    lastAuthFailureReasonRef.current = null;
     return {
       id: fbUser.uid,
       ...newProfile,
@@ -1122,12 +1130,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const fbUser = userCredential.user;
 
       // 5. Consultar o perfil do usuário no banco de dados e confirmar se está ativo
+      lastAuthFailureReasonRef.current = null;
       const resolvedProfile = await resolveAndValidateUserProfile(fbUser);
       if (!resolvedProfile) {
         await signOut(auth);
         setLoading(false);
         isInteractiveLoginRef.current = false;
-        const msg = authError || UNAUTHORIZED_SIGCO_EMAIL_MESSAGE;
+        const msg = lastAuthFailureReasonRef.current || UNAUTHORIZED_SIGCO_EMAIL_MESSAGE;
         return { success: false, message: msg };
       }
 
